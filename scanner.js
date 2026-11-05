@@ -44,12 +44,20 @@ async function scanSteam() {
   const root = await steamRoot();
   if (!root || !(await exists(root))) return NONE;
 
-  const libraries = new Set([root]);
+  // Windows paths differ only by letter case (the registry says "c:/program files", the
+  // library file says "C:\\Program Files"), so compare them in a normalised form.
+  const libraries = new Map();
+  const addLibrary = (p) => {
+    const clean = path.normalize(p).replace(/[\\/]+$/, '');
+    libraries.set(IS_WIN ? clean.toLowerCase() : clean, clean);
+  };
+  addLibrary(root);
   const folders = await readText(path.join(root, 'steamapps', 'libraryfolders.vdf'));
-  if (folders) for (const m of folders.matchAll(/"path"\s+"([^"]+)"/g)) libraries.add(m[1].replace(/\\\\/g, '\\'));
+  if (folders) for (const m of folders.matchAll(/"path"\s+"([^"]+)"/g)) addLibrary(m[1].replace(/\\\\/g, '\\'));
 
   const games = [];
-  for (const lib of libraries) {
+  const seen = new Set();
+  for (const lib of libraries.values()) {
     const dir = path.join(lib, 'steamapps');
     let files = [];
     try {
@@ -62,7 +70,8 @@ async function scanSteam() {
       if (!text) continue;
       const appId = vdf(text, 'appid');
       const name = vdf(text, 'name');
-      if (!appId || !name || STEAM_SKIP.test(name)) continue;
+      if (!appId || !name || STEAM_SKIP.test(name) || seen.has(appId)) continue;
+      seen.add(appId);
 
       const flags = num(vdf(text, 'StateFlags'));
       const total = num(vdf(text, 'BytesToDownload'));
@@ -165,8 +174,9 @@ async function scanGog() {
 async function scanAll() {
   const empty = () => NONE;
   const [steam, epic, gog] = await Promise.all([scanSteam().catch(empty), scanEpic().catch(empty), scanGog().catch(empty)]);
+  const unique = new Map([...steam.games, ...epic.games, ...gog.games].map((g) => [g.id, g]));
   return {
-    games: [...steam.games, ...epic.games, ...gog.games],
+    games: [...unique.values()],
     stores: {
       steam: { found: steam.found, count: steam.games.length },
       epic: { found: epic.found, count: epic.games.length },
