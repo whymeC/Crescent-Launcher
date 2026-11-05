@@ -10,8 +10,22 @@ permissions:
   contents: write   # lets GITHUB_TOKEN create the release and upload files
 
 jobs:
+  # Create the draft release once, so the Windows and macOS builds upload into the
+  # same release instead of each creating their own.
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the draft if it does not exist yet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$GITHUB_REF_NAME" --notes "Release $GITHUB_REF_NAME"
+
   build:
     name: Build on ${{ matrix.os }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
