@@ -65,6 +65,7 @@
   const hours = (s) => (s < 60 ? '' : `${(s / 3600).toFixed(1)} h`);
   const gb = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)} MB`);
   const pct = (g) => Math.round((g.progress || 0) * 100);
+  const updateText = (g) => (pct(g) ? `Updating ${pct(g)}%` : 'Update pending');
   const STORES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', manual: 'Added by you' };
 
   function toast(message) {
@@ -129,7 +130,7 @@
   function statusBadge(g) {
     if (g.state === 'installed') return h('span', { class: 'badge' }, icon('check'), 'Installed');
     if (g.state === 'missing') return h('span', { class: 'badge busy', text: 'File missing' });
-    return h('span', { class: 'badge busy', text: `${g.state === 'installing' ? 'Installing' : 'Updating'} ${pct(g)}%` });
+    return h('span', { class: 'badge busy', text: g.state === 'installing' ? `Installing ${pct(g)}%` : updateText(g) });
   }
 
   function card(g) {
@@ -284,7 +285,7 @@
       facts.replaceChildren(...rows.map(([k, v]) => h('div', {}, h('span', { class: 'k', text: k }), h('span', { class: 'v', text: v }))));
     });
 
-    const label = g.state === 'installed' ? 'Ready to play' : g.state === 'updating' ? `Updating ${pct(g)}%` : g.state === 'installing' ? `Installing ${pct(g)}%` : 'File missing';
+    const label = g.state === 'installed' ? 'Ready to play' : g.state === 'updating' ? updateText(g) : g.state === 'installing' ? `Installing ${pct(g)}%` : 'File missing';
     const busy = g.state === 'installing' || g.state === 'missing';
     const stat = (k, v) => h('div', { class: 'stat' }, h('div', { class: 'k', text: k }), h('div', { class: 'v', text: v }));
     const disk = state.disk;
