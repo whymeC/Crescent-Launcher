@@ -1,0 +1,70 @@
+{
+  "1.0.1": {
+    "bugfixes": [
+      "Games from Steam no longer appear twice in your library.",
+      "Updates that are queued in Steam are labelled \"Update pending\" instead of \"Updating 0%\"."
+    ]
+  },
+  "1.0.2": {
+    "features": [
+      "A new Settings page for the launcher, your games and updates.",
+      "Make your account yours: a profile picture, a banner (picture or a video up to 10 seconds) and an app wallpaper.",
+      "Four animated wallpapers (Night Sky, Aurora Borealis, Milkyway, Singularity) and four still wallpapers.",
+      "Games that need an update now show an Update button and are listed on the Downloads page.",
+      "A Close Game button appears while a game is running.",
+      "Play time is counted in seconds, minutes and hours for every game, including Steam and Epic games.",
+      "Crescent now also looks for games from the EA app, Ubisoft Connect, Battle.net, Xbox app, Microsoft Store, Riot (Valorant and League of Legends), Rockstar and Roblox.",
+      "Crescent searches your drives for installed games that no launcher reported.",
+      "Missing game descriptions and banners are looked up on the internet.",
+      "Pop-ups for uploads and errors, and an upload window with drag and drop.",
+      "A moon phase loading screen while Crescent looks for your games.",
+      "A list of the games you play most on your Account page, shown as a list or as a 2 by 2 grid."
+    ],
+    "reworks": [
+      "The Jump Back In box now rotates through your 4 most played games.",
+      "The update notice moved into a Reload to update button next to the window buttons.",
+      "The bell now shows messages about games that need an update.",
+      "The Friends list can be hidden and shown with a button, with a smooth animation.",
+      "The Crescent logo is now the app icon."
+    ],
+    "optimizations": [
+      "Game descriptions and banners are saved on your PC, so they only load once.",
+      "Searching every drive runs in the background and never blocks the launcher."
+    ],
+    "bugfixes": [
+      "Play time for Steam and Epic games is no longer left at zero."
+    ]
+  },
+  "1.0.3": {
+    "features": [
+      "Games in Quick Launch now show a small play button when you hover over them.",
+      "A setting to turn the smooth Jump Back In transition on or off.",
+      "The bottom left corner now shows kind and encouraging words.",
+      "The mini profile in the bottom left now shows your banner behind your name."
+    ],
+    "reworks": [
+      "The friends list now has separate Hide and Show buttons with new icons. When hidden, the scroll bar sits on the right edge of the launcher and the Show button sits next to it.",
+      "The upload window now matches the launcher's colours.",
+      "The widgets on the Account page now line up in justified rows.",
+      "Jump Back In now fades smoothly from one game to the next.",
+      "The corner of the launcher no longer shows how many games were found."
+    ],
+    "optimizations": [
+      "The play time counter updates without redrawing the page, so the launcher stays calm while you play.",
+      "Banner videos are no longer reloaded every time the page refreshes."
+    ],
+    "bugfixes": [
+      "The name and text on the Account page no longer move or squash together when you upload a profile picture and a banner.",
+      "Profile pictures in the bottom left are now round.",
+      "Banner videos no longer glitch at the start and now play all the way through.",
+      "Banners between 400 and 700 pixels tall (and wider than 1280 pixels) are now accepted.",
+      "The game scanner no longer adds empty folders, texture folders or apps such as Windhawk, Overlay and Epic Online Services to your library.",
+      "Folders such as Content and Win64 are no longer shown as games.",
+      "The play time counter now goes up every second while you play.",
+      "The back button on a game page now names the page you came from.",
+      "Notifications in the bottom right now close by themselves after 5 seconds.",
+      "Updating a Steam game now opens Steam on its Downloads page and starts the update.",
+      "Install paths on the game page no longer break in the middle of a word."
+    ]
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "name": "crescent-launcher",
+  "productName": "Crescent",
+  "version": "1.0.3",
+  "description": "Crescent: a game launcher that plays every game installed on your PC",
+  "main": "main.js",
+  "author": "Keano Koopman <keanokoopman.2009@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/whymeC/Crescent-Launcher.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --publish never"
+  },
+  "build": {
+    "appId": "com.example.crescent",
+    "productName": "Crescent",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "scanner.js",
+      "deepscan.js",
+      "tracker.js",
+      "changelog.json",
+      "build/icon.png",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "whymeC",
+        "repo": "Crescent-Launcher"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "category": "public.app-category.games",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "extraResources": [
+      {
+        "from": "videos",
+        "to": "videos"
+      },
+      {
+        "from": "images",
+        "to": "images"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.11"
+  }
+}
