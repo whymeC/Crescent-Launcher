@@ -66,5 +66,33 @@
       "Updating a Steam game now opens Steam on its Downloads page and starts the update.",
       "Install paths on the game page no longer break in the middle of a word."
     ]
+  },
+  "1.0.5": {
+    "features": [
+      "Set a status: Online, In-Game, AFK, Do Not Disturb or Chilling, with an optional message of your own. It shows on your profile and in the bottom left.",
+      "A new Milestones page with an activity feed (for example \"You just hit 50 hours in a game\" and \"Unlocked the Gold Frame achievement\").",
+      "Profile picture borders that unlock as your total play time grows.",
+      "A glowing border around your banner, in a colour of your choice.",
+      "Choose an accent colour, or let Crescent take one from your wallpaper or banner. It tints buttons, highlights and active tabs.",
+      "Tags: create your own tags such as Co-Op, Indie or Backlog and sort your library with them.",
+      "Searching in the title bar now shows the matching games in a drop-down menu.",
+      "Three interface styles: Default, Liquid Glass and Cartoony. Pick one in the Wallpaper widget on the Account page.",
+      "Custom widgets: Total time on a game of your choice, and Hours until a profile picture border. You can add them to Home and Milestones and remove them again.",
+      "Choose what Crescent does when a game starts: keep open, minimize to the system tray, or minimize to the taskbar.",
+      "A lightweight performance overlay with CPU, GPU and RAM while a game runs (FPS too when PresentMon is installed).",
+      "Smooth page transitions. You can turn them off in Settings."
+    ],
+    "reworks": [
+      "The friends list button is now an arrow.",
+      "Settings has a new Performance section."
+    ],
+    "optimizations": [
+      "Typing in the library search keeps the cursor in the box instead of redrawing the whole page."
+    ],
+    "bugfixes": [
+      "The messages menu no longer goes behind the Jump Back In box and the friends list.",
+      "A game found by more than one source, such as Minecraft Dungeons, now appears only once in your library.",
+      "A game without cover art no longer shows its name twice in the Jump Back In box."
+    ]
   }
 }

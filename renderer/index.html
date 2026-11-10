@@ -24,11 +24,14 @@
         <button id="tb-fwd" class="icon-btn" type="button" aria-label="Forward" data-icon="fwd"></button>
       </div>
       <div id="crumb" class="crumb">Your launcher. Your universe.</div>
-      <label class="search">
-        <span data-icon="search"></span>
-        <input id="search" type="search" placeholder="Search your library" autocomplete="off" />
-        <kbd>Ctrl K</kbd>
-      </label>
+      <div class="search-wrap">
+        <label class="search">
+          <span data-icon="search"></span>
+          <input id="search" type="search" placeholder="Search your library" autocomplete="off" aria-autocomplete="list" aria-controls="search-menu" />
+          <kbd>Ctrl K</kbd>
+        </label>
+        <div id="search-menu" class="search-menu" role="listbox" hidden></div>
+      </div>
       <button id="update-pill" class="update-pill" type="button" hidden></button>
       <div class="bell-wrap">
         <button id="bell" class="icon-btn" type="button" aria-label="Messages" aria-haspopup="true" data-icon="bell"></button>
@@ -46,6 +49,7 @@
       <button class="side-item" type="button" data-route="home" data-icon="home">Home</button>
       <button class="side-item" type="button" data-route="library" data-icon="library">Library</button>
       <button class="side-item" type="button" data-route="downloads" data-icon="download">Downloads <span id="dl-count" class="count" hidden></span></button>
+      <button class="side-item" type="button" data-route="milestones" data-icon="trophy">Milestones</button>
       <div class="side-label quick-label">Quick launch</div>
       <div id="quick" class="quick"></div>
       <div class="side-bottom">
@@ -54,21 +58,21 @@
           <span id="acc-bg" class="acc-bg" aria-hidden="true"></span>
           <span class="acc-in">
             <span id="acc-avatar" class="avatar"></span>
-            <span><b id="acc-name"></b><small>My account</small></span>
+            <span class="acc-text"><b id="acc-name"></b><small id="acc-sub">My account</small></span>
           </span>
         </button>
       </div>
     </nav>
 
     <main class="main">
-      <button id="friends-show" class="friends-show" type="button" aria-label="Show friends list" title="Show friends list" data-icon="showFriends"></button>
+      <button id="friends-show" class="friends-show" type="button" aria-label="Show friends list" title="Show friends list" data-icon="arrow"></button>
       <div id="page" class="page"></div>
     </main>
 
     <aside class="friends" aria-label="Friends">
       <div class="f-head">
         <h2>Friends</h2>
-        <button id="friends-hide" class="icon-btn" type="button" aria-label="Hide friends list" title="Hide friends list" data-icon="hideFriends"></button>
+        <button id="friends-hide" class="icon-btn flip" type="button" aria-label="Hide friends list" title="Hide friends list" data-icon="arrow"></button>
       </div>
       <div class="f-empty">
         <p>Friends and chat aren't connected yet.</p>

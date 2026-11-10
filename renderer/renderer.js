@@ -14,6 +14,7 @@
     query: '', tab: 'all', sort: 'recent', layout: 'grid', featured: 0, themeTab: 'animated',
     snapshot: '', pollTimer: null, heroTimer: null, themeSig: '',
     bannerCache: null, liveBase: {}, miniSig: '', tip: Math.floor(Math.random() * 1000),
+    widgets: [], tags: [], gameTags: {}, milestones: [], borders: [], totalSeconds: 0, searchIndex: 0, searchResults: [],
   };
 
   const STORES = {
@@ -86,7 +87,7 @@
     "You're allowed to take your time.", 'Small joys add up to a happy life.', 'Believe in the version of you that keeps going.',
   ];
 
-  const ROUTE_NAMES = { home: 'Home', library: 'Library', downloads: 'Downloads', account: 'Account', settings: 'Settings' };
+  const ROUTE_NAMES = { home: 'Home', library: 'Library', downloads: 'Downloads', milestones: 'Milestones', account: 'Account', settings: 'Settings' };
   function routeName(route) {
     if (route.startsWith('game:')) return state.games.find((g) => g.id === route.slice(5))?.title || 'game';
     return ROUTE_NAMES[route] || 'Home';
@@ -231,6 +232,188 @@
 
   const rescan = () => withLoader('Looking for your games…', () => refresh(true), 1000);
 
+
+  /* ---------------- 1.0.5 helpers ---------------- */
+
+  const STATUS_PRESETS = [
+    { id: 'online', label: 'Online' }, { id: 'ingame', label: 'In-Game' }, { id: 'afk', label: 'AFK' },
+    { id: 'dnd', label: 'Do Not Disturb' }, { id: 'chilling', label: 'Chilling' },
+  ];
+  function statusInfo() {
+    const s = state.profile.status || { preset: 'online', message: '' };
+    const preset = STATUS_PRESETS.find((p) => p.id === s.preset) || STATUS_PRESETS[0];
+    let label = s.message || preset.label;
+    if (!s.message && preset.id === 'ingame') {
+      const g = state.games.find((x) => state.running.has(x.id));
+      if (g) label = `In-Game · ${g.title}`;
+    }
+    return { id: preset.id, label };
+  }
+  const borderClass = () => (state.profile.border && state.profile.border !== 'none' ? ` bd-${state.profile.border}` : '');
+  const when = (ts) => `${ago(ts)[0].toUpperCase()}${ago(ts).slice(1)} · ${new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+  // Readable text colour for the accent colour
+  function inkFor(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+    return L > 0.4 ? '#111214' : '#ffffff';
+  }
+
+  // Interface style, accent colour and the transitions switch
+  function applyLook() {
+    const p = state.profile;
+    const b = document.body;
+    b.classList.toggle('ui-glass', p.uiTheme === 'glass');
+    b.classList.toggle('ui-cartoon', p.uiTheme === 'cartoon');
+    b.classList.toggle('no-transitions', state.settings.transitions === false);
+    let color = p.accent?.color || '#f1f1f3';
+    if (p.uiTheme === 'cartoon' && (p.accent?.mode || 'default') === 'default') color = '#ff5a4d';
+    document.documentElement.style.setProperty('--accent', color);
+    document.documentElement.style.setProperty('--accent-ink', inkFor(color));
+  }
+
+  function promptText({ title, text, placeholder = '', confirm = 'Create' }) {
+    return new Promise((resolve) => {
+      let done = false;
+      modal((close) => {
+        const input = h('input', { class: 'input', placeholder, maxlength: '24' });
+        const ok = () => { done = true; resolve(input.value.trim()); close(); };
+        input.addEventListener('keydown', (e) => e.key === 'Enter' && ok());
+        setTimeout(() => input.focus(), 60);
+        return [h('h3', { text: title }), h('p', { class: 'sub', text }), input,
+          h('div', { class: 'modal-actions' }, button('Cancel', 'ghost', close), button(confirm, 'light', ok))];
+      }, { cls: 'small', onClose: () => { if (!done) resolve(null); } });
+    });
+  }
+
+  const statusText = (g) => (state.running.has(g.id) ? 'Running' : g.state === 'installed' ? 'Installed' : g.state === 'updating' ? 'Update available' : g.state === 'installing' ? 'Installing' : 'File missing');
+
+  /* ---- search drop-down in the title bar ---- */
+  function drawSearchMenu() {
+    const menu = $('#search-menu');
+    const raw = $('#search').value;
+    const q = raw.trim().toLowerCase();
+    if (!q) { menu.hidden = true; return; }
+    const rank = (g) => (g.title.toLowerCase().startsWith(q) ? 0 : 1);
+    const results = state.games.filter((g) => g.title.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title)).slice(0, 6);
+    state.searchResults = results;
+    state.searchIndex = Math.min(state.searchIndex, Math.max(0, results.length - 1));
+    menu.hidden = false;
+    menu.replaceChildren(...(results.length
+      ? results.map((g, i) => h('div', { class: `sr${i === state.searchIndex ? ' on' : ''}`, role: 'option', onmousedown: (e) => { e.preventDefault(); openSearchResult(g); } },
+        artBox(g, ['header', 'hero']), h('div', { class: 'grow' }, h('b', { text: g.title }), h('small', { text: `${STORES[g.store]} · ${statusText(g)}` }))))
+      : [h('p', { class: 'sr-empty', text: `No game called "${raw}" in your library.` })]));
+  }
+  function openSearchResult(g) {
+    $('#search').value = '';
+    $('#search-menu').hidden = true;
+    go(`game:${g.id}`);
+  }
+
+  /* ---- tags ---- */
+  async function createTagFlow(applyTo) {
+    const name = await promptText({ title: 'New tag', text: 'Group your games your own way, for example Co-Op, Indie or Backlog.', placeholder: 'Tag name' });
+    if (!name) return;
+    const r = await api.createTag(name);
+    if (!r.ok) return failure(r.error);
+    if (applyTo) await api.setGameTag(applyTo, r.tag.id, true);
+    await refresh(true);
+  }
+
+  function tagPanel(g) {
+    const on = new Set(state.gameTags[g.id] || []);
+    const chips = state.tags.map((t) => h('button', {
+      class: `chip-btn${on.has(t.id) ? ' on' : ''}`, type: 'button', 'aria-pressed': String(on.has(t.id)),
+      onclick: async () => { await api.setGameTag(g.id, t.id, !on.has(t.id)); await refresh(true); },
+    }, t.name));
+    const quick = state.tags.length ? [] : ['Co-Op', 'Indie', 'Backlog'].map((n) => h('button', {
+      class: 'chip-btn', type: 'button', text: `+ ${n}`,
+      onclick: async () => { const r = await api.createTag(n); if (r.ok) { await api.setGameTag(g.id, r.tag.id, true); await refresh(true); } },
+    }));
+    return h('div', { style: 'margin-top:22px' },
+      h('h3', { text: 'Tags' }), h('div', { style: 'height:10px' }),
+      h('div', { class: 'chips' }, chips, quick, h('button', { class: 'chip-btn', type: 'button', onclick: () => createTagFlow(g.id) }, icon('plus'), 'New tag')));
+  }
+
+  /* ---- widgets (the ones you add can be removed; the built-in ones cannot) ---- */
+  function borderTarget(id) {
+    const hours = state.totalSeconds / 3600;
+    const list = state.borders.filter((b) => b.hours > 0);
+    return id && id !== 'next' ? list.find((b) => b.id === id) : list.find((b) => b.hours > hours);
+  }
+  function borderWidget(widget, removable) {
+    const hours = state.totalSeconds / 3600;
+    const b = borderTarget(widget?.borderId);
+    const left = b ? Math.max(0, b.hours - hours) : 0;
+    const body = !b
+      ? [h('div', { class: 'w-big', text: 'All unlocked' }), h('div', { class: 'card-sub', text: 'You have every border.' })]
+      : left === 0
+        ? [h('div', { class: 'w-big', text: 'Unlocked' }), h('div', { class: 'card-sub', text: `${b.name} is yours.` })]
+        : [h('div', { class: 'w-big', text: `${left.toFixed(1)} h` }), h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, (hours / b.hours) * 100)}%` })), h('div', { class: 'card-sub', style: 'margin-top:6px', text: `until the ${b.name} border` })];
+    return h('section', { class: 'panel widget' }, h('h3', { text: 'Hours until border' }), body, removable ? removeX(widget) : null);
+  }
+  const removeX = (w) => h('button', { class: 'w-x', type: 'button', 'aria-label': 'Remove widget', onclick: async () => { await api.removeWidget(w.id); await refresh(true); } }, icon('x'));
+  function widgetCard(w) {
+    if (w.type === 'border-hours') return borderWidget(w, true);
+    const g = state.games.find((x) => x.id === w.gameId);
+    return h('section', { class: 'panel widget' }, h('h3', { text: 'Total time' }),
+      g ? h('div', { class: 'w-game' }, artBox(g, ['header', 'hero']), h('div', {}, h('div', { class: 'card-title', text: g.title }), h('div', { class: 'w-big' }, liveText(g, 'full'))))
+        : h('p', { class: 'sub', text: 'This game is no longer in your library.' }),
+      removeX(w));
+  }
+  function widgetSection(pageName) {
+    const mine = state.widgets.filter((w) => w.page === pageName);
+    return h('div', {},
+      h('div', { class: 'section-head' }, h('h3', { text: 'Your widgets' }), button('Add widget', 'ghost small', () => showAddWidget(pageName), 'plus')),
+      mine.length ? h('div', { class: 'widgets' }, mine.map(widgetCard)) : h('p', { class: 'sub', style: 'margin-bottom:20px', text: 'Add a widget to keep an eye on a game or on your next border.' }));
+  }
+  function showAddWidget(pageName) {
+    let type = state.games.length ? 'game-time' : 'border-hours';
+    modal((close) => {
+      const gameSel = h('select', { class: 'input', 'aria-label': 'Game' }, state.games.map((g) => h('option', { value: g.id, text: g.title })));
+      const borderSel = h('select', { class: 'input', 'aria-label': 'Border' }, [h('option', { value: 'next', text: 'Next border to unlock' }), ...state.borders.filter((b) => b.hours > 0).map((b) => h('option', { value: b.id, text: `${b.name} (${b.hours} h)` }))]);
+      const gameBox = h('div', {}, gameSel);
+      const borderBox = h('div', {}, borderSel);
+      const pickGame = h('button', { class: 'pick', type: 'button', disabled: !state.games.length, onclick: () => set('game-time') }, h('b', { text: 'Total time on a game' }), h('small', { text: 'Shows how long you have played a game of your choice.' }));
+      const pickBorder = h('button', { class: 'pick', type: 'button', onclick: () => set('border-hours') }, h('b', { text: 'Hours until a profile picture border' }), h('small', { text: 'Shows how many hours you still need to unlock a border.' }));
+      function set(t) {
+        type = t;
+        pickGame.classList.toggle('on', t === 'game-time');
+        pickBorder.classList.toggle('on', t === 'border-hours');
+        gameBox.hidden = t !== 'game-time';
+        borderBox.hidden = t !== 'border-hours';
+      }
+      set(type);
+      const add = async () => {
+        const r = await api.addWidget({ page: pageName, type, gameId: gameSel.value, borderId: borderSel.value });
+        if (!r.ok) return failure(r.error);
+        close();
+        await refresh(true);
+      };
+      return [h('h3', { text: 'Add a widget' }), h('p', { class: 'sub', text: 'Choose what it shows. You can remove it again later.' }),
+        h('div', { class: 'pick-list' }, pickGame, pickBorder), gameBox, borderBox,
+        h('div', { class: 'modal-actions' }, button('Cancel', 'ghost', close), button('Add widget', 'light', add))];
+    }, { cls: 'small' });
+  }
+
+  /* ---- milestones page ---- */
+  const FEED_ICON = { game: 'play', hours: 'trophy', library: 'library', border: 'trophy', info: 'bell' };
+  function pageMilestones() {
+    const feed = state.milestones.length
+      ? h('div', { class: 'feed' }, state.milestones.slice(0, 25).map((m) => h('div', { class: 'feed-item' },
+        h('span', { class: 'feed-ico' }, icon(FEED_ICON[m.kind] || 'star')), h('div', { class: 'grow' }, h('div', { text: m.text }), h('small', { text: when(m.at) })))))
+      : h('p', { class: 'sub', text: 'Play a game and your milestones show up here.' });
+    return h('div', {},
+      h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'Milestones' }), h('p', { class: 'sub', text: 'The little moments you have earned.' }))),
+      h('div', { class: 'cols even', style: 'margin-bottom:16px' },
+        h('section', { class: 'panel' }, h('h3', {}, 'Activity feed', h('small', { class: 'card-sub', text: 'Recent milestones' })), feed),
+        h('div', {}, borderWidget(null, false),
+          h('section', { class: 'panel', style: 'margin-top:16px' }, h('h3', { text: 'Total play time' }),
+            h('div', { class: 'w-big', text: `${(state.totalSeconds / 3600).toFixed(1)} h` }), h('div', { class: 'card-sub', text: 'Across every game in Crescent' })))),
+      widgetSection('milestones'));
+  }
+
   /* ---------------- home ---------------- */
 
   function heroList() {
@@ -298,7 +481,8 @@
     root.append(
       h('div', { class: 'section-head' }, h('h3', { text: g.some((x) => x.lastPlayed) ? 'Recently played' : 'Your games' }),
         h('button', { class: 'link-btn', type: 'button', onclick: () => go('library') }, 'View library', icon('fwd'))),
-      h('div', { class: 'cards' }, recent.map(card)));
+      h('div', { class: 'cards' }, recent.map(card)),
+      widgetSection('home'));
 
     const active = inProgress();
     if (active.length) {
@@ -316,6 +500,8 @@
   function pageLibrary() {
     const all = state.games;
     const sets = { all, installed: all.filter((g) => g.state === 'installed'), favorites: all.filter((g) => g.favorite) };
+    for (const t of state.tags) sets[`tag:${t.id}`] = all.filter((g) => (state.gameTags[g.id] || []).includes(t.id));
+    if (!sets[state.tab]) state.tab = 'all'; // the tag was deleted
     const grid = h('div', { class: `cards${state.layout === 'list' ? ' list' : ''}` });
     const count = h('small');
 
@@ -323,28 +509,31 @@
       const q = state.query.trim().toLowerCase();
       const list = sortGames(sets[state.tab].filter((g) => !q || g.title.toLowerCase().includes(q)));
       grid.replaceChildren(...list.map(card));
-      if (!list.length) grid.replaceChildren(h('p', { class: 'sub', text: q ? `No games match "${state.query}".` : 'Nothing here yet.' }));
+      if (!list.length) grid.replaceChildren(h('p', { class: 'sub', text: q ? `No games match "${state.query}".` : state.tab.startsWith('tag:') ? 'No games have this tag yet. Open a game to add it.' : 'Nothing here yet.' }));
       count.textContent = `Showing ${list.length} of ${all.length} games`;
     }
     draw();
 
     const search = h('input', { type: 'search', placeholder: `Search ${all.length} games`, value: state.query, 'aria-label': 'Search your library' });
-    search.addEventListener('input', () => setQuery(search.value));
-    page.pageSearch = search;
+    search.addEventListener('input', () => { state.query = search.value; draw(); });
 
     const sort = h('select', { 'aria-label': 'Sort games' },
       [['recent', 'Recently played'], ['name', 'Name'], ['played', 'Most played']].map(([v, l]) => h('option', { value: v, text: l, selected: state.sort === v })));
     sort.addEventListener('change', () => { state.sort = sort.value; draw(); });
 
     const layoutBtn = (name, label) => h('button', { type: 'button', class: state.layout === name ? 'on' : '', 'aria-label': label, onclick: () => { state.layout = name; render(false); } }, icon(name));
+    const tabs = [['all', 'All games'], ['installed', 'Installed'], ['favorites', 'Favorites'], ...state.tags.map((t) => [`tag:${t.id}`, t.name])];
+    const currentTag = state.tab.startsWith('tag:') ? state.tags.find((t) => `tag:${t.id}` === state.tab) : null;
 
     return h('div', {},
       h('div', { class: 'page-head' },
         h('div', {}, h('h1', { text: 'Your library' }), h('p', { class: 'sub', text: 'All your worlds. One place to come back to.' })),
         button('Add a game', 'ghost', addGame, 'plus')),
       h('div', { class: 'tabs', role: 'tablist' },
-        [['all', 'All games'], ['installed', 'Installed'], ['favorites', 'Favorites']].map(([key, label]) =>
-          h('button', { class: `tab${state.tab === key ? ' on' : ''}`, type: 'button', role: 'tab', onclick: () => { state.tab = key; render(false); } }, label, h('small', { text: sets[key].length })))),
+        tabs.map(([key, label]) => h('button', { class: `tab${state.tab === key ? ' on' : ''}`, type: 'button', role: 'tab', onclick: () => { state.tab = key; render(false); } }, label, h('small', { text: sets[key].length }))),
+        h('div', { class: 'tab-actions' },
+          currentTag ? button('Delete tag', 'ghost small', async () => { await api.deleteTag(currentTag.id); state.tab = 'all'; await refresh(true); }, 'trash') : null,
+          button('New tag', 'ghost small', () => createTagFlow(), 'tag'))),
       h('div', { class: 'toolbar' },
         h('label', { class: 'field grow' }, icon('search'), search),
         h('label', { class: 'field' }, h('span', { class: 'card-sub', text: 'Sort by' }), sort),
@@ -387,7 +576,8 @@
         h('section', {},
           h('h3', { text: 'About the game' }), h('div', { style: 'height:12px' }),
           h('p', { class: 'about-lead', text: meta?.description || 'No description found yet. Crescent keeps looking in the background.' }),
-          facts.length ? h('div', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('span', { class: 'k', text: k }), h('span', { class: 'v', text: v })))) : null),
+          facts.length ? h('div', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('span', { class: 'k', text: k }), h('span', { class: 'v', text: v })))) : null,
+          tagPanel(g)),
         h('aside', { class: 'panel' },
           h('h3', {}, 'Storage', icon('disk')),
           h('div', { class: 'kv' }, h('span', { class: 'k', text: 'Installed size' }), h('span', { class: 'big-num', text: g.sizeBytes ? gb(g.sizeBytes) : 'Unknown' })),
@@ -474,13 +664,15 @@
     }
     const el = state.bannerCache.el;
     el.style.aspectRatio = b ? `${b.width} / ${b.height}` : '1280 / 400'; // the banner takes the shape of the file
+    const glow = state.profile.glow;
+    el.style.boxShadow = glow?.on ? `0 0 28px 4px ${glow.color}, 0 0 0 1px ${glow.color}` : '';
     const v = el.querySelector('video');
     if (v) setTimeout(() => v.play().catch(() => {}), 0); // a video pauses when it leaves the page; carry on where it was
     return el;
   }
 
   function avatarEl(cls = 'avatar') {
-    const a = h('span', { class: cls });
+    const a = h('span', { class: cls + borderClass() });
     if (state.profile.avatarUrl) a.append(h('img', { src: state.profile.avatarUrl, alt: '' }));
     else a.textContent = state.profile.name[0]?.toUpperCase() || '?';
     return a;
@@ -502,11 +694,81 @@
         onclick: async () => { state.profile = await api.setTheme(tab, t.id); applyTheme(); render(false); },
       }, thumbEl, h('span', { class: 't-name', text: t.name }), h('span', { class: 't-sub', text: t.available ? (cur.type === tab && cur.id === t.id ? 'In use' : 'Use this wallpaper') : `Missing: put ${t.file} in the ${t.folder} folder` }));
     });
+    const looks = [['default', 'Default', 'Classic dark'], ['glass', 'Liquid Glass', 'Frosted and shiny'], ['cartoon', 'Cartoony', 'Bold and playful']];
+    const uiCards = h('div', { class: 'ui-grid' }, looks.map(([id, name, sub]) => h('button', {
+      class: `ui-card${state.profile.uiTheme === id ? ' on' : ''}`, type: 'button',
+      onclick: async () => { state.profile = await api.setUiTheme(id); applyLook(); render(false); },
+    }, h('div', { class: `ui-prev ${id}` }), h('b', { text: name }), h('small', { text: sub }))));
     return h('section', { class: 'panel' },
+      h('h3', { text: 'Interface style' }), uiCards,
       h('h3', {}, 'Wallpaper', cur.type !== 'none' ? button('Remove wallpaper', 'ghost small', async () => { state.profile = await api.setTheme('none'); applyTheme(); render(false); }) : null),
       h('div', { class: 'tabs themes-tabs' },
         [['animated', 'Animated'], ['still', 'Still pictures']].map(([k, l]) => h('button', { class: `tab${tab === k ? ' on' : ''}`, type: 'button', onclick: () => { state.themeTab = k; render(false); } }, l))),
       h('div', { class: 'theme-grid' }, cards));
+  }
+
+  function switchEl(on, onchange, label) {
+    return h('button', { class: `switch${on ? ' on' : ''}`, type: 'button', role: 'switch', 'aria-checked': String(on), 'aria-label': label, onclick: () => onchange(!on) }, h('i'));
+  }
+  const colorSwatches = (colors, current, pick) => h('div', { class: 'swatches' }, colors.map((c) => {
+    const b = h('button', { class: `swatch${c.toLowerCase() === (current || '').toLowerCase() ? ' on' : ''}`, type: 'button', 'aria-label': `Colour ${c}`, onclick: () => pick(c) });
+    b.style.background = c;
+    return b;
+  }));
+
+  function bordersPanel() {
+    const hours = state.totalSeconds / 3600;
+    return h('section', { class: 'panel' }, h('h3', {}, 'Profile picture border', h('small', { class: 'card-sub', text: `${hours.toFixed(1)} h played` })),
+      h('div', { class: 'border-grid' }, state.borders.map((b) => {
+        const unlocked = hours >= b.hours;
+        const current = state.profile.border === b.id;
+        const av = h('span', { class: `avatar bd-${b.id}` });
+        if (state.profile.avatarUrl) av.append(h('img', { src: state.profile.avatarUrl, alt: '' })); else av.textContent = state.profile.name[0]?.toUpperCase() || '?';
+        return h('button', {
+          class: `border-opt${current ? ' on' : ''}`, type: 'button', disabled: !unlocked,
+          onclick: async () => {
+            const r = await api.setBorder(b.id);
+            if (!r.ok) return failure(r.error);
+            state.profile = r.profile; chrome(); render(false);
+          },
+        }, av, h('b', { text: b.name }), h('small', { text: unlocked ? (current ? 'In use' : 'Use this') : `${(b.hours - hours).toFixed(1)} h to go` }));
+      })));
+  }
+
+  function lookPanel() {
+    const glow = state.profile.glow || { on: false, color: '#6c8cff' };
+    const accent = state.profile.accent || { mode: 'default', color: '#f1f1f3' };
+    const glowColor = h('input', { type: 'color', value: glow.color, 'aria-label': 'Banner glow colour' });
+    glowColor.addEventListener('change', async () => { state.profile = await api.setGlow(true, glowColor.value); render(false); });
+    const accentColor = h('input', { type: 'color', value: accent.color, 'aria-label': 'Accent colour' });
+    const setAccent = async (mode, color) => {
+      const r = await api.setAccent(mode, color);
+      if (!r.ok) return failure(r.error);
+      state.profile = r.profile; applyLook(); render(false);
+    };
+    accentColor.addEventListener('change', () => setAccent('custom', accentColor.value));
+    const GLOWS = ['#6c8cff', '#4fe3b0', '#ff6fae', '#ffcf5a', '#ff5a4d', '#c58bff'];
+    const ACCENTS = ['#f1f1f3', '#6c8cff', '#4fe3b0', '#ff6fae', '#ffcf5a', '#ff5a4d', '#c58bff', '#4fe3ff'];
+    return h('section', { class: 'panel' }, h('h3', { text: 'Banner glow' }),
+      h('div', { class: 'row-inline', style: 'margin-bottom:12px' }, switchEl(glow.on, async (on) => { state.profile = await api.setGlow(on, glow.color); render(false); }, 'Banner glow'), h('span', { class: 'sub', text: glow.on ? 'The glow is on' : 'Add a glow around your banner' }), glowColor),
+      colorSwatches(GLOWS, glow.color, async (c) => { state.profile = await api.setGlow(true, c); render(false); }),
+      h('h3', { style: 'margin-top:6px', text: 'Accent colour' }),
+      h('p', { class: 'sub', style: 'margin-bottom:12px', text: accent.mode === 'wallpaper' ? 'Taken from your wallpaper' : accent.mode === 'banner' ? 'Taken from your banner' : accent.mode === 'custom' ? 'Your own colour' : 'Default' }),
+      colorSwatches(ACCENTS, accent.mode === 'default' ? '#f1f1f3' : accent.color, (c) => (c === '#f1f1f3' ? setAccent('default') : setAccent('custom', c))),
+      h('div', { class: 'btn-stack' }, accentColor, button('From my wallpaper', 'ghost small', () => setAccent('wallpaper'), 'palette'), button('From my banner', 'ghost small', () => setAccent('banner'), 'palette')));
+  }
+
+  function statusBlock() {
+    const cur = state.profile.status || { preset: 'online', message: '' };
+    const msg = h('input', { class: 'input', id: 'status-msg', value: cur.message, maxlength: '60', placeholder: 'Custom message, for example "Back in 10 minutes"' });
+    const save = async (preset, message) => { state.profile = await api.setStatus(preset, message); chrome(); render(false); };
+    msg.addEventListener('keydown', (e) => e.key === 'Enter' && save(cur.preset, msg.value));
+    return h('div', { style: 'margin-top:18px' },
+      h('label', { class: 'label', text: 'Status' }),
+      h('div', { class: 'status-opts' }, STATUS_PRESETS.map((p) => h('button', {
+        class: `chip-btn${cur.preset === p.id ? ' on' : ''}`, type: 'button', onclick: () => save(p.id, cur.message),
+      }, h('i', { class: `st-dot st-${p.id}` }), p.label))),
+      h('div', { class: 'row-inline' }, msg, button('Save', 'light small', () => save(cur.preset, msg.value))));
   }
 
   function pageAccount() {
@@ -522,6 +784,7 @@
         h('span', { class: 'rank', text: i + 1 }), artBox(g, ['header', 'hero']),
         h('span', { class: 'grow' }, h('b', { text: g.title }), h('small', {}, liveText(g, 'full')))))
       : [h('p', { class: 'sub', text: 'Play a game and it shows up here.' })]);
+    const st = statusInfo();
 
     return h('div', {},
       h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'Your account' }), h('p', { class: 'sub', text: 'Your identity, inside and outside the game.' }))),
@@ -529,7 +792,7 @@
         bannerBox(),
         h('div', { class: 'profile-bar' },
           avatarEl('avatar'),
-          h('div', { class: 'who' }, h('h2', { text: state.profile.name }), h('p', { class: 'sub', text: 'Local profile, stored on this PC' })),
+          h('div', { class: 'who' }, h('h2', { text: state.profile.name }), h('p', { class: 'sub' }, h('i', { class: `st-dot st-${st.id}` }), st.label)),
           h('div', { class: 'btn-stack' },
             button('Change picture', 'ghost small', () => startUpload('avatar'), 'edit'),
             button('Change banner', 'ghost small', () => startUpload('banner'), 'edit'),
@@ -538,12 +801,14 @@
       h('div', { class: 'cols even', style: 'margin-bottom:16px' },
         h('section', { class: 'panel' }, h('h3', { text: 'Account details' }),
           h('label', { class: 'label', for: 'name', text: 'Display name' }), input,
-          h('div', { class: 'btn-stack', style: 'margin-top:14px' }, button('Save name', 'light small', save), button('Open data folder', 'ghost small', () => api.openDataFolder(), 'folder'))),
+          h('div', { class: 'btn-stack', style: 'margin-top:14px' }, button('Save name', 'light small', save), button('Open data folder', 'ghost small', () => api.openDataFolder(), 'folder')),
+          statusBlock()),
         h('section', { class: 'panel' }, h('h3', { text: 'Your Crescent journey' }),
           h('div', { class: 'stats3' },
             h('div', {}, h('span', { class: 'big-num', text: state.games.length }), h('small', { text: 'Games' })),
             h('div', {}, h('span', { class: 'big-num', text: state.games.filter((g) => g.state === 'installed').length }), h('small', { text: 'Installed' })),
             h('div', {}, h('span', { class: 'big-num', text: total ? (total / 3600).toFixed(1) : '0' }), h('small', { text: 'Hours played' }))))),
+      h('div', { class: 'cols even', style: 'margin-bottom:16px' }, bordersPanel(), lookPanel()),
       themePanel(),
       h('div', { class: 'cols even', style: 'margin-top:16px' },
         h('section', { class: 'panel' }, h('h3', { text: 'Most played' }), topList),
@@ -562,7 +827,7 @@
       const on = !!state.settings[key];
       return h('button', {
         class: `switch${on ? ' on' : ''}`, type: 'button', role: 'switch', 'aria-checked': String(on), 'aria-label': key,
-        onclick: async () => { state.settings = await api.setSetting(key, !on); if (key === 'friendsHidden') applyFriends(); chrome(); render(false); },
+        onclick: async () => { state.settings = await api.setSetting(key, !on); if (key === 'friendsHidden') applyFriends(); applyLook(); chrome(); render(false); },
       }, h('i'));
     };
     const seg = (key, options) => h('div', { class: 'seg inline' }, options.map(([v, l]) =>
@@ -573,10 +838,14 @@
       h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'Settings' }), h('p', { class: 'sub', text: 'Make Crescent work the way you like.' }))),
       group('Launcher',
         row('Start with Windows', 'Open Crescent when you sign in. Works in the installed app.', toggle('startWithWindows')),
-        row('Minimize when a game starts', 'Gets the launcher out of the way while you play.', toggle('minimizeOnGameStart')),
+        row('Page transitions', 'A small, smooth movement when you switch pages. Also used by the friends list. Turn off to switch instantly.', toggle('transitions')),
         row('Smooth Jump Back In transition', 'The Jump Back In box on the home screen fades to the next game. Turn off to switch instantly.', toggle('heroTransition')),
         row('Hide the friends list', 'Friends are not available yet. You can also use the button on the list.', toggle('friendsHidden')),
         row('Most played games layout', 'How your top games are shown on the Account page.', seg('topGamesLayout', [['list', 'List'], ['grid', '2 by 2']]))),
+      group('Performance',
+        row('When a game starts', 'Keep Crescent open, hide it in the system tray, or minimize it to the taskbar to save resources.', seg('onGameStart', [['keep', 'Keep open'], ['tray', 'System tray'], ['taskbar', 'Taskbar']])),
+        row('Bring Crescent back when the game closes', 'Only when Crescent was hidden or minimized because a game started.', toggle('restoreAfterGame')),
+        row('Performance overlay', 'A small overlay with CPU, GPU and RAM while a game runs. Shows FPS when PresentMon is in the tools folder. Works with windowed and borderless games.', toggle('overlayEnabled'))),
       group('Games',
         row('Look for games automatically', 'Checks your game launchers when Crescent starts and when you come back to it.', toggle('autoScan')),
         row('Search every drive', 'Also looks through your drives for games that no launcher reported. Runs in the background.', toggle('deepScan')),
@@ -798,14 +1067,6 @@
   function goBack(fallback) {
     if (state.pos > 0) { state.pos--; render(true); } else go(fallback);
   }
-  function setQuery(value) {
-    state.query = value;
-    $('#search').value = value;
-    if (page.pageSearch && page.pageSearch.value !== value) page.pageSearch.value = value;
-    if (state.route !== 'library') go('library');
-    else render(false);
-  }
-
   function render(resetScroll = false) {
     clearInterval(state.pollTimer);
     clearInterval(state.heroTimer);
@@ -815,8 +1076,10 @@
     const arg = i < 0 ? null : route.slice(i + 1);
     const top = page.scrollTop;
     page.pageSearch = null;
-    const pages = { home: pageHome, library: pageLibrary, downloads: pageDownloads, account: pageAccount, settings: pageSettings, game: () => pageGame(arg) };
-    page.replaceChildren((pages[name] || pageHome)());
+    const pages = { home: pageHome, library: pageLibrary, downloads: pageDownloads, milestones: pageMilestones, account: pageAccount, settings: pageSettings, game: () => pageGame(arg) };
+    const view = (pages[name] || pageHome)();
+    if (resetScroll && state.settings.transitions !== false) view.classList.add('page-enter'); // a small, smooth change of page
+    page.replaceChildren(view);
     page.scrollTop = resetScroll ? 0 : top;
     chrome();
   }
@@ -824,11 +1087,18 @@
   // Bottom left: the player's round picture and banner. Only rebuilt when something changed, so a banner video keeps playing.
   function drawMiniProfile() {
     const p = state.profile;
+    const st = statusInfo();
     $('#acc-name').textContent = p.name;
-    const sig = `${p.banner?.url || ''}|${p.avatarUrl || ''}|${p.name}`;
+    const sub = $('#acc-sub');
+    if (sub.dataset.sig !== `${st.id}|${st.label}`) {
+      sub.dataset.sig = `${st.id}|${st.label}`;
+      sub.replaceChildren(h('i', { class: `st-dot st-${st.id}` }), st.label);
+    }
+    const sig = `${p.banner?.url || ''}|${p.avatarUrl || ''}|${p.name}|${p.border}`;
     if (sig === state.miniSig) return;
     state.miniSig = sig;
     const av = $('#acc-avatar');
+    av.className = `avatar${borderClass()}`;
     av.replaceChildren();
     if (p.avatarUrl) av.append(h('img', { src: p.avatarUrl, alt: '' }));
     else av.textContent = p.name[0]?.toUpperCase() || '?';
@@ -842,7 +1112,7 @@
     const game = route.startsWith('game:') ? state.games.find((g) => g.id === route.slice(5)) : null;
     $('#crumb').textContent = route === 'home' ? 'Your launcher. Your universe.'
       : route === 'library' ? 'Library / All games' : route === 'downloads' ? 'Downloads / Overview'
-      : route === 'account' ? 'Account / Profile' : route === 'settings' ? 'Settings' : `Library / ${game ? game.title : 'Game'}`;
+      : route === 'account' ? 'Account / Profile' : route === 'settings' ? 'Settings' : route === 'milestones' ? 'Milestones' : `Library / ${game ? game.title : 'Game'}`;
     document.querySelectorAll('.side-item[data-route]').forEach((el) => el.classList.toggle('active', el.dataset.route === route || (route.startsWith('game:') && el.dataset.route === 'library')));
     $('#tb-back').disabled = state.pos === 0;
     $('#tb-fwd').disabled = state.pos >= state.stack.length - 1;
@@ -884,20 +1154,23 @@
     const running = new Set(res.running);
     // Play time of a running game changes constantly and is shown by the live counter, so it must not trigger a redraw.
     const stable = res.games.map((g) => (running.has(g.id) ? { ...g, playSeconds: 0 } : g));
-    const snapshot = JSON.stringify([stable, res.profile, res.stores, res.running, res.settings]);
+    const snapshot = JSON.stringify([stable, res.profile, res.stores, res.running, res.settings, res.widgets, res.tags, res.gameTags, res.milestones]);
     state.disk = res.disk;
     state.scan = res.scan;
     state.games = res.games;
     state.running = running;
+    state.totalSeconds = res.totalSeconds;
+    state.borders = res.borders;
     const now = Date.now();
     for (const g of res.games) if (running.has(g.id)) state.liveBase[g.id] = { seconds: g.playSeconds, at: now };
     if (snapshot === state.snapshot) { tickLive(); return; }
     // Don't redraw under the user's cursor while they're typing in the page.
     if (document.activeElement && page.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
-    Object.assign(state, { stores: res.stores, profile: res.profile, settings: res.settings, snapshot });
+    Object.assign(state, { stores: res.stores, profile: res.profile, settings: res.settings, widgets: res.widgets, tags: res.tags, gameTags: res.gameTags, milestones: res.milestones, snapshot });
     for (const id of res.running) state.launching.delete(id);
     applyTheme();
     applyFriends();
+    applyLook();
     render(false);
   }
 
@@ -911,7 +1184,18 @@
   $('#win-min').addEventListener('click', () => api.window.minimize());
   $('#win-max').addEventListener('click', () => api.window.maximize());
   $('#win-close').addEventListener('click', () => api.window.close());
-  $('#search').addEventListener('input', (e) => setQuery(e.target.value));
+  const searchBox = $('#search');
+  searchBox.addEventListener('input', () => { state.searchIndex = 0; drawSearchMenu(); });
+  searchBox.addEventListener('focus', drawSearchMenu);
+  searchBox.addEventListener('blur', () => { $('#search-menu').hidden = true; });
+  searchBox.addEventListener('keydown', (e) => {
+    const n = state.searchResults.length;
+    if (e.key === 'ArrowDown' && n) { e.preventDefault(); state.searchIndex = (state.searchIndex + 1) % n; drawSearchMenu(); }
+    else if (e.key === 'ArrowUp' && n) { e.preventDefault(); state.searchIndex = (state.searchIndex - 1 + n) % n; drawSearchMenu(); }
+    else if (e.key === 'Enter' && n) { e.preventDefault(); openSearchResult(state.searchResults[state.searchIndex]); }
+    else if (e.key === 'Escape') { searchBox.value = ''; $('#search-menu').hidden = true; searchBox.blur(); }
+  });
+  api.onMilestone((texts) => texts.forEach((t) => notify('Milestone reached', t)));
   $('#loader-moons').append(moons());
 
   $('#bell').addEventListener('click', (e) => {
@@ -961,6 +1245,7 @@
       await refresh(true);
       applyTheme();
       applyFriends();
+      applyLook();
       render(true);
     }, 2000);
     const logs = await api.getWhatsNew(false);

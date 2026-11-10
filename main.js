@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, Menu, dialog, net, protocol, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog, net, protocol, clipboard, Tray, nativeImage, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const { spawn, execFile } = require('node:child_process');
@@ -13,6 +13,9 @@ const { pathToFileURL } = require('node:url');
 const { scanAll, normName, NOT_GAME, GENERIC_DIR } = require('./scanner');
 const { deepScan } = require('./deepscan');
 const { listProcesses, matchGame, stopProcesses } = require('./tracker');
+const { dominantAccent, isHex } = require('./color');
+const { BORDERS, totalSeconds, checkMilestones } = require('./milestones');
+const perf = require('./perf');
 
 // Our own address type for the user's pictures/videos and the bundled wallpapers.
 protocol.registerSchemesAsPrivileged([
@@ -59,16 +62,22 @@ const send = (channel, payload) => {
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_SETTINGS = {
-  startWithWindows: false, minimizeOnGameStart: false, topGamesLayout: 'list', friendsHidden: false,
+  startWithWindows: false, topGamesLayout: 'list', friendsHidden: false,
+  onGameStart: 'keep', restoreAfterGame: true, overlayEnabled: false, transitions: true,
   autoScan: true, deepScan: true, trackPlaytime: true,
   autoCheckUpdates: true, autoDownloadUpdates: true, showUpdateLogs: true, notifyGameUpdates: true,
   heroTransition: true,
 };
 const DEFAULTS = () => ({
-  profile: { name: 'Player', avatar: null, banner: null, theme: { type: 'none', id: null } },
+  profile: {
+    name: 'Player', avatar: null, banner: null, theme: { type: 'none', id: null },
+    status: { preset: 'online', message: '' }, border: 'none', glow: { on: false, color: '#6c8cff' },
+    accent: { mode: 'default', color: '#f1f1f3' }, uiTheme: 'default',
+  },
   settings: { ...DEFAULT_SETTINGS },
   manual: [], hidden: [], stats: {}, metaCache: {},
   deepFound: { at: 0, games: [] }, lastSeenVersion: null,
+  widgets: [], tags: [], gameTags: {}, milestones: [], milestoneKeys: [], milestonesSeeded: false,
 });
 
 let data = DEFAULTS();
@@ -87,6 +96,9 @@ function loadData() {
       deepFound: { ...base.deepFound, ...saved.deepFound },
     };
     if ((data.deepFound.v || 0) < DEEP_SCAN_VERSION) data.deepFound = { at: 0, games: [], v: DEEP_SCAN_VERSION };
+    // older versions had a single "minimize" switch
+    if (saved.settings?.minimizeOnGameStart && !saved.settings.onGameStart) data.settings.onGameStart = 'taskbar';
+    delete data.settings.minimizeOnGameStart;
   } catch (err) {
     if (hadData) log.warn('library.json unreadable, starting fresh', err);
   }
@@ -207,6 +219,73 @@ async function enrich(games) {
 
 let cache = { at: 0, scan: null };
 const running = new Map(); // game id -> [pids]
+const runningInfo = new Map(); // game id -> { pids, exe }
+let hiddenByGame = false;
+let tray = null;
+
+function showWindow() {
+  if (!mainWindow) createWindow();
+  else {
+    mainWindow.show();
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+  hiddenByGame = false;
+  if (tray) { tray.destroy(); tray = null; }
+}
+function ensureTray() {
+  if (tray) return;
+  let img;
+  try { img = nativeImage.createFromBuffer(fs.readFileSync(path.join(__dirname, 'build', 'icon.png'))).resize({ width: 16, height: 16 }); }
+  catch { img = nativeImage.createEmpty(); }
+  tray = new Tray(img);
+  tray.setToolTip('Crescent');
+  tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Open Crescent', click: showWindow }, { label: 'Quit', click: () => app.quit() }]));
+  tray.on('click', showWindow);
+}
+// What Crescent does when a game starts: keep open, hide in the tray, or minimize to the taskbar.
+function applyLaunchBehavior() {
+  const mode = data.settings.onGameStart;
+  if (!mainWindow || mode === 'keep') return;
+  hiddenByGame = true;
+  if (mode === 'tray') { ensureTray(); mainWindow.hide(); } else mainWindow.minimize();
+}
+
+/* ---- performance overlay: a small see-through window that never takes clicks ---- */
+let overlayWin = null, overlayTimer = null, fpsStop = null, fpsValue = null, gpuValue = null, gpuAt = 0;
+function destroyOverlay() {
+  clearInterval(overlayTimer);
+  if (fpsStop) fpsStop();
+  fpsStop = null; fpsValue = null;
+  if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
+  overlayWin = null;
+}
+function createOverlay() {
+  const { workArea } = screen.getPrimaryDisplay();
+  overlayWin = new BrowserWindow({
+    x: workArea.x + 6, y: workArea.y + 6, width: 200, height: 130, transparent: true, frame: false, alwaysOnTop: true,
+    focusable: false, skipTaskbar: true, resizable: false, hasShadow: false, show: false,
+    webPreferences: { preload: path.join(__dirname, 'overlay-preload.js'), contextIsolation: true, sandbox: true },
+  });
+  overlayWin.setAlwaysOnTop(true, 'screen-saver');
+  overlayWin.setIgnoreMouseEvents(true);
+  overlayWin.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
+  overlayWin.once('ready-to-show', () => overlayWin && overlayWin.showInactive());
+  // FPS only when PresentMon (a free tool from Intel) sits in the tools folder
+  const pm = perf.findPresentMon([path.join(themeRoot(), 'tools')]);
+  const exe = [...runningInfo.values()][0]?.exe;
+  if (pm && exe) fpsStop = perf.startFps(pm, path.basename(exe), (v) => { fpsValue = v; });
+  overlayTimer = setInterval(() => {
+    if (!overlayWin || overlayWin.isDestroyed()) return;
+    if (Date.now() - gpuAt > 3000) { gpuAt = Date.now(); perf.gpuPercent().then((v) => { gpuValue = v; }).catch(() => {}); }
+    overlayWin.webContents.send('overlay:stats', { cpu: perf.cpuPercent(), ram: perf.ramPercent(), gpu: gpuValue, fps: fpsValue });
+  }, 1000);
+}
+function updateOverlay() {
+  const want = data.settings.overlayEnabled && running.size > 0;
+  if (want && !overlayWin) createOverlay();
+  else if (!want && overlayWin) destroyOverlay();
+}
 let scanState = { active: false, text: '' };
 
 async function getLibrary(force) {
@@ -228,7 +307,18 @@ async function getLibrary(force) {
   const seen = new Set();
   const games = [];
   const fromStores = cache.scan.games.filter((g) => g.store === 'steam' || !NOT_GAME.test(g.title));
-  for (const g of [...fromStores, ...manual, ...detected]) {
+
+  // A game found by the drive search is dropped when a launcher (or you) already added the same game:
+  // same folder, a folder inside or around it, same program, or the same name.
+  const normPath = (p) => path.normalize(String(p || '')).replace(/[\\/]+$/, '').toLowerCase();
+  const related = (a, b) => a && b && (a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep));
+  const others = [...fromStores, ...manual];
+  const uniqueDetected = detected.filter((d) => !others.some((o) =>
+    related(normPath(o.installPath), normPath(d.installPath)) ||
+    normPath(o.launch?.target) === normPath(d.launch.target) ||
+    normName(o.title) === normName(d.title)));
+
+  for (const g of [...fromStores, ...manual, ...uniqueDetected]) {
     if (hidden.has(g.id) || seen.has(g.id)) continue;
     seen.add(g.id);
     const s = data.stats[g.id] || {};
@@ -255,10 +345,45 @@ async function diskInfo(games) {
   }
 }
 
+const ANIM_ACCENT = { 'night-sky': '#7c8cff', 'aurora-borealis': '#4fe3b0', milkyway: '#b894ff', singularity: '#ff9a4d' };
+let accentKey = '';
+
+function accentFromFile(file) {
+  try {
+    const img = nativeImage.createFromPath(file);
+    if (img.isEmpty()) return null;
+    return dominantAccent(img.resize({ width: 48, height: 48 }).toBitmap());
+  } catch {
+    return null;
+  }
+}
+// The colour taken from the wallpaper or the banner; null when it cannot be read (videos, WEBP and GIF banners).
+function resolveAccent(mode) {
+  const p = data.profile;
+  if (mode === 'wallpaper') {
+    if (p.theme.type === 'animated') return ANIM_ACCENT[p.theme.id] || null;
+    const t = THEMES.still.find((x) => x.id === p.theme.id);
+    return p.theme.type === 'still' && t ? accentFromFile(path.join(themeRoot(), 'images', t.file)) : null;
+  }
+  if (mode === 'banner') return p.banner?.type === 'image' ? accentFromFile(path.join(mediaDir(), p.banner.file)) : null;
+  return null;
+}
+// Keeps a "from my wallpaper / banner" accent in step when the wallpaper or banner changes.
+function refreshAccent() {
+  const a = data.profile.accent;
+  if (a.mode !== 'wallpaper' && a.mode !== 'banner') { accentKey = ''; return; }
+  const key = `${a.mode}|${data.profile.theme.id}|${data.profile.banner?.file}`;
+  if (key === accentKey) return;
+  accentKey = key;
+  const c = resolveAccent(a.mode);
+  if (c) a.color = c;
+}
+
 function publicProfile() {
+  refreshAccent();
   const p = data.profile;
   return {
-    name: p.name,
+    name: p.name, status: p.status, border: p.border, glow: p.glow, accent: p.accent, uiTheme: p.uiTheme,
     avatarUrl: p.avatar ? `crescent://media/${p.avatar}` : null,
     banner: p.banner ? { url: `crescent://media/${p.banner.file}`, type: p.banner.type, width: p.banner.width, height: p.banner.height } : null,
     theme: p.theme,
@@ -268,7 +393,11 @@ function publicProfile() {
 async function buildList(force) {
   const { games, stores } = await getLibrary(force);
   enrich(games); // fills in descriptions and artwork in the background
-  return { games, stores, profile: publicProfile(), settings: data.settings, disk: await diskInfo(games), running: [...running.keys()], scan: scanState };
+  return {
+    games, stores, profile: publicProfile(), settings: data.settings, disk: await diskInfo(games), running: [...running.keys()], scan: scanState,
+    widgets: data.widgets, tags: data.tags, gameTags: data.gameTags, milestones: data.milestones.slice(0, 60),
+    borders: BORDERS, totalSeconds: Math.round(totalSeconds(data)),
+  };
 }
 
 async function findGame(id) {
@@ -359,22 +488,43 @@ async function trackerTick() {
   try {
     const [{ games }, procs] = await Promise.all([getLibrary(false), listProcesses()]);
     const next = new Map();
+    const info = new Map();
     for (const g of games) {
       if (g.state === 'missing') continue;
       const hits = matchGame(g, procs);
-      if (hits.length) next.set(g.id, hits.map((p) => p.pid));
+      if (hits.length) { next.set(g.id, hits.map((p) => p.pid)); info.set(g.id, { pids: hits.map((p) => p.pid), exe: hits[0].path }); }
     }
+    const before = running.size;
     let changed = next.size !== running.size;
+    let startedNow = false;
     for (const [id] of next) {
       if (!running.has(id)) {
         changed = true;
+        startedNow = true;
         bumpStats(id, (s) => (s.lastPlayed = now));
-        if (data.settings.minimizeOnGameStart && mainWindow) mainWindow.minimize();
       }
       if (data.settings.trackPlaytime) bumpStats(id, (s) => (s.playSeconds = (s.playSeconds || 0) + dt));
     }
     running.clear();
     for (const [id, pids] of next) running.set(id, pids);
+    runningInfo.clear();
+    for (const [id, v] of info) runningInfo.set(id, v);
+
+    if (startedNow) applyLaunchBehavior();
+    if (before > 0 && running.size === 0 && hiddenByGame && data.settings.restoreAfterGame) showWindow();
+    updateOverlay();
+
+    // milestones: the first run only remembers play time from before this feature, silently
+    if (!data.milestonesSeeded) {
+      checkMilestones(data, games, { silent: true });
+      data.milestones.unshift({ id: 'welcome', kind: 'info', text: 'Milestones started. Your achievements show up here.', at: now });
+      data.milestoneKeys.push('welcome');
+      data.milestonesSeeded = true;
+      saveData();
+    } else {
+      const fresh = checkMilestones(data, games);
+      if (fresh.length) { saveData(); send('milestones:new', fresh.map((m) => m.text)); }
+    }
     if (changed || next.size) send('games:running', [...running.keys()]);
   } catch (err) {
     log.warn('Tracker tick failed', err.message);
@@ -388,7 +538,7 @@ async function trackerTick() {
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm' };
 const MAX_UPLOAD = 120 * 1024 * 1024;
 const BANNER = { minW: 1280, maxW: 3840, minH: 400, maxH: 700, maxSeconds: 10 };
-const DEEP_SCAN_VERSION = 2; // bump when the drive search gets smarter, so old results are thrown away
+const DEEP_SCAN_VERSION = 3; // bump when the drive search gets smarter, so old results are thrown away
 const uploads = new Map();
 
 function serveFile(file, req) {
@@ -511,9 +661,84 @@ function registerIpc() {
     saveData();
     if (key === 'startWithWindows' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: value });
     if (key === 'autoDownloadUpdates') autoUpdater.autoDownload = value;
+    if (key === 'overlayEnabled') updateOverlay();
     return data.settings;
   });
   handle('settings:clearCache', () => { data.metaCache = {}; saveData(); send('library:changed'); return true; });
+
+  handle('profile:setStatus', (preset, message) => {
+    if (!['online', 'ingame', 'afk', 'dnd', 'chilling'].includes(preset)) throw new Error('Unknown status.');
+    data.profile.status = { preset, message: String(message || '').trim().slice(0, 60) };
+    saveData();
+    return publicProfile();
+  });
+  handle('profile:setBorder', (id) => attempt(async () => {
+    const b = BORDERS.find((x) => x.id === id);
+    if (!b) throw new Error('Unknown border.');
+    if (totalSeconds(data) / 3600 < b.hours) throw new Error(`Play ${b.hours} hours in total to unlock this border.`);
+    data.profile.border = id;
+    saveData();
+    return { profile: publicProfile() };
+  }));
+  handle('profile:setGlow', (on, color) => {
+    data.profile.glow = { on: !!on, color: isHex(color) ? color.toLowerCase() : data.profile.glow.color };
+    saveData();
+    return publicProfile();
+  });
+  handle('profile:setUiTheme', (id) => {
+    if (!['default', 'glass', 'cartoon'].includes(id)) throw new Error('Unknown style.');
+    data.profile.uiTheme = id;
+    saveData();
+    return publicProfile();
+  });
+  handle('accent:set', (mode, color) => attempt(async () => {
+    if (mode === 'default') data.profile.accent = { mode, color: '#f1f1f3' };
+    else if (mode === 'custom') {
+      if (!isHex(color)) throw new Error('That is not a colour.');
+      data.profile.accent = { mode, color: color.toLowerCase() };
+    } else if (mode === 'wallpaper' || mode === 'banner') {
+      const c = resolveAccent(mode);
+      if (!c) throw new Error(mode === 'banner'
+        ? 'Crescent could not read a colour from your banner. A PNG or JPG banner picture works best (not a video).'
+        : 'Pick a wallpaper first, then Crescent can take its colour.');
+      data.profile.accent = { mode, color: c };
+      accentKey = `${mode}|${data.profile.theme.id}|${data.profile.banner?.file}`;
+    } else throw new Error('Unknown accent mode.');
+    saveData();
+    return { profile: publicProfile() };
+  }));
+
+  handle('widgets:add', (w) => attempt(async () => {
+    if (!['home', 'milestones'].includes(w?.page) || !['game-time', 'border-hours'].includes(w?.type)) throw new Error('Unknown widget.');
+    if (data.widgets.length >= 12) throw new Error('You can have up to 12 widgets.');
+    data.widgets.push({ id: crypto.randomUUID().slice(0, 8), page: w.page, type: w.type, gameId: String(w.gameId || ''), borderId: String(w.borderId || 'next') });
+    saveData();
+  }));
+  handle('widgets:remove', (id) => { data.widgets = data.widgets.filter((w) => w.id !== String(id)); saveData(); return true; });
+
+  handle('tags:create', (name) => attempt(async () => {
+    const clean = String(name || '').trim().slice(0, 24);
+    if (!clean) throw new Error('Give the tag a name.');
+    if (data.tags.some((t) => t.name.toLowerCase() === clean.toLowerCase())) throw new Error('You already have a tag with that name.');
+    const tag = { id: 't' + Date.now().toString(36), name: clean };
+    data.tags.push(tag);
+    saveData();
+    return { tag };
+  }));
+  handle('tags:delete', (id) => {
+    data.tags = data.tags.filter((t) => t.id !== String(id));
+    for (const k of Object.keys(data.gameTags)) data.gameTags[k] = data.gameTags[k].filter((t) => t !== String(id));
+    saveData();
+    return true;
+  });
+  handle('games:setTag', (gameId, tagId, on) => {
+    if (!data.tags.some((t) => t.id === tagId)) throw new Error('Unknown tag.');
+    const list = new Set(data.gameTags[gameId] || []);
+    if (on) list.add(tagId); else list.delete(tagId);
+    data.gameTags[gameId] = [...list];
+    saveData();
+    return data.gameTags;
+  });
 
   handle('profile:setName', (name) => { data.profile.name = String(name).trim().slice(0, 40) || 'Player'; saveData(); return publicProfile(); });
 
@@ -687,6 +912,6 @@ if (!app.requestSingleInstanceLock()) {
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 
-  app.on('before-quit', () => { app.isQuitting = true; saveData(); });
+  app.on('before-quit', () => { app.isQuitting = true; destroyOverlay(); if (tray) tray.destroy(); saveData(); });
   app.on('window-all-closed', () => { if (!isMac) app.quit(); });
 }

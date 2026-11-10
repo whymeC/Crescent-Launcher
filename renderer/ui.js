@@ -23,6 +23,11 @@ window.UI = (() => {
     uploadBox: '<path d="M12 15V4m0 0L8 8m4-4l4 4"/><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>',
     // Hide Friends List: a window with a side panel and an arrow pointing into it
     panel: '<rect x="3" y="5" width="18" height="14" rx="4"/><path d="M15 5v14M6.5 12h5M9.5 9.5l2.5 2.5-2.5 2.5"/>',
+    // outlined block arrow, pointing left
+    arrow: '<path d="M3 12l7.5-7.5v4.5H21v6H10.5v4.5z"/>',
+    trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a2 2 0 0 0 2 4M16 6h3a2 2 0 0 1-2 4M12 13v4M9 20h6"/>',
+    tag: '<path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>', trash: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
     palette: '<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.5-2.5H17a4 4 0 0 0 4-4c0-5-4-9.5-9-9.5z"/>',
   };

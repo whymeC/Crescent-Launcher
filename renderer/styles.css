@@ -461,3 +461,204 @@ body.themed .main { background: rgba(14, 15, 17, 0.38); }
 .drop .ico { color: var(--muted); }
 .drop .browse { color: #8fa2ff; }
 .drop small { color: var(--dim); }
+
+/* ===================== 1.0.5 ===================== */
+
+/* Messages and pop-ups always sit on top of the Jump Back In box and the friends list */
+.titlebar { position: relative; z-index: 40; }
+.popups { z-index: 200; }
+.modal-back { z-index: 150; }
+.flip svg { transform: rotate(180deg); }
+.friends-show .ico { width: 18px; height: 18px; }
+.friends-show .ico svg { stroke-width: 1.9; }
+#friends-hide .ico { width: 18px; height: 18px; }
+#friends-hide .ico svg { stroke-width: 1.9; }
+
+/* Accent colour: tints buttons, highlights and active tabs */
+:root { --accent: #f1f1f3; --accent-ink: #111214; }
+.btn.light { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.light:hover { background: var(--accent); filter: brightness(1.1); }
+.tab.on { border-color: var(--accent); }
+.side-item.active { box-shadow: inset 3px 0 0 var(--accent); }
+.bar > i, .p-bar i { background: var(--accent); }
+.dot.on { background: var(--accent); }
+.switch.on { background: var(--accent); }
+.switch.on i { background: var(--accent-ink); }
+.seg button.on { box-shadow: inset 0 -2px 0 var(--accent); }
+.theme.on, .border-opt.on, .ui-card.on { border-color: var(--accent); }
+.eyebrow i { background: var(--accent); }
+.top-item .rank { color: var(--accent); }
+.search:focus-within, .input:focus { border-color: var(--accent); }
+.btn:focus-visible, .icon-btn:focus-visible, .side-item:focus-visible, .card:focus-visible, .quick-item:focus-visible { outline-color: var(--accent); }
+.chip-btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* Search drop-down */
+.search-wrap { position: relative; -webkit-app-region: no-drag; }
+.search-menu { position: absolute; top: 38px; left: 0; right: 0; z-index: 60; padding: 6px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5); }
+.sr { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; cursor: pointer; }
+.sr.on, .sr:hover { background: var(--panel); }
+.sr .art { width: 56px; height: 32px; flex: none; border-radius: 5px; }
+.sr .art-title { font-size: 7px; letter-spacing: 0.05em; padding: 2px; }
+.sr .grow { flex: 1; min-width: 0; }
+.sr b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr small { color: var(--dim); }
+.sr-empty { padding: 14px 10px; color: var(--muted); text-align: center; }
+
+/* Page transitions (can be switched off in Settings; that also stops the friends list animation) */
+@keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.page-enter { animation: pageIn 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+body.no-transitions .page-enter { animation: none; }
+body.no-transitions .shell, body.no-transitions .friends, body.no-transitions .friends-show, body.no-transitions .page,
+body.no-transitions .f-head h2, body.no-transitions .f-empty, body.no-transitions #friends-hide svg { transition: none !important; }
+
+/* Profile picture borders */
+.avatar.bd-classic { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
+.avatar.bd-silver { box-shadow: 0 0 0 3px #c8ccd4, 0 0 10px rgba(200, 204, 212, 0.4); }
+.avatar.bd-gold { box-shadow: 0 0 0 3px #e2b53c, 0 0 14px rgba(226, 181, 60, 0.55); }
+.avatar.bd-emerald { box-shadow: 0 0 0 3px #2fd391, 0 0 14px rgba(47, 211, 145, 0.5); }
+.avatar.bd-aurora, .avatar.bd-stellar { padding: 3px; background-size: 300% 300%; animation: ringShift 5s linear infinite; }
+.avatar.bd-aurora { background-image: linear-gradient(135deg, #3ee0a0, #6c8cff, #c58bff, #3ee0a0); }
+.avatar.bd-stellar { background-image: linear-gradient(135deg, #ffcf5a, #ff6fae, #7c8cff, #4fe3ff, #ffcf5a); }
+.avatar.bd-aurora img, .avatar.bd-stellar img { border-radius: 50%; }
+@keyframes ringShift { to { background-position: 300% 300%; } }
+.border-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.border-opt { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px 10px; border: 2px solid var(--line); border-radius: 12px; background: var(--panel-2); text-align: center; }
+.border-opt:hover:not(:disabled) { border-color: var(--line-2); }
+.border-opt:disabled { opacity: 0.55; cursor: default; }
+.border-opt .avatar { width: 56px; height: 56px; font-size: 22px; border: 0; }
+.border-opt b { font-size: 12px; }
+.border-opt small { color: var(--dim); font-size: 11px; }
+
+/* Banner glow: the card no longer clips it */
+.profile.v2 { overflow: visible; }
+
+/* Status */
+.st-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--dot, #4fd1a1); vertical-align: middle; }
+.st-online { --dot: #4fd1a1; } .st-ingame { --dot: #6c8cff; } .st-afk { --dot: #e0b04f; } .st-dnd { --dot: #ff6b7a; } .st-chilling { --dot: #c58bff; }
+.status-opts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.chip-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line-2); background: none; font-size: 12px; }
+.chip-btn:hover { background: var(--panel-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.row-inline { display: flex; gap: 8px; align-items: center; }
+.row-inline .input { flex: 1; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid var(--line-2); }
+.swatch.on { outline: 2px solid var(--text); outline-offset: 2px; }
+input[type="color"] { width: 38px; height: 30px; padding: 0; border: 1px solid var(--line-2); border-radius: 8px; background: none; cursor: pointer; }
+.tab-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; padding-bottom: 6px; }
+
+/* Widgets and the Milestones page */
+.widgets { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.widget { position: relative; }
+.widget h3 { padding-right: 28px; font-weight: 500; color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.widget .w-x { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; display: grid; place-items: center; background: none; border: 0; color: var(--dim); border-radius: 6px; }
+.widget .w-x:hover { color: var(--text); background: var(--panel-2); }
+.widget .w-x .ico { width: 13px; height: 13px; }
+.w-game { display: flex; align-items: center; gap: 12px; }
+.w-game .art { width: 84px; height: 48px; border-radius: 6px; flex: none; }
+.w-game .art-title { font-size: 9px; padding: 4px; }
+.w-big { font-size: 28px; font-weight: 300; margin: 4px 0 8px; }
+.feed { display: flex; flex-direction: column; }
+.feed-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.feed-item:first-child { border-top: 0; }
+.feed-ico { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--panel-2); color: var(--accent); }
+.feed-ico .ico { width: 15px; height: 15px; }
+.feed-item .grow { flex: 1; min-width: 0; }
+.feed-item small { color: var(--dim); }
+.pick-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.pick { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; text-align: left; border: 2px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.pick.on { border-color: var(--accent); }
+.pick small { color: var(--dim); }
+select.input { appearance: auto; }
+.modal.small { width: 420px; max-width: calc(100vw - 40px); padding: 24px; }
+.modal.small h3 { font: 400 22px var(--serif); margin-bottom: 4px; }
+.modal.small .sub { margin-bottom: 8px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+/* Interface styles (chosen in the Wallpaper widget on the Account page) */
+.ui-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+.ui-card { padding: 0; border: 2px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel-2); text-align: left; }
+.ui-prev { height: 54px; }
+.ui-prev.default { background: linear-gradient(135deg, #151719, #26282c); }
+.ui-prev.glass { background: radial-gradient(circle at 20% 30%, #7c8cff, transparent 60%), radial-gradient(circle at 80% 70%, #ff78c8, transparent 60%), #1b1f33; }
+.ui-prev.cartoon { background: #ffd84d; border-bottom: 3px solid #1b1b1b; }
+.ui-card b { display: block; padding: 8px 10px 0; }
+.ui-card small { display: block; padding: 0 10px 8px; color: var(--dim); }
+
+/* ---- Liquid Glass ---- */
+body.ui-glass { --bg: #0a0b14; --panel: rgba(255, 255, 255, 0.08); --panel-2: rgba(255, 255, 255, 0.13); --line: rgba(255, 255, 255, 0.16); --line-2: rgba(255, 255, 255, 0.28); --muted: #c1c8dc; --dim: #98a1ba; }
+body.ui-glass:not(.themed) .wallpaper { background: radial-gradient(55% 50% at 12% 18%, rgba(124, 140, 255, 0.6), transparent 62%), radial-gradient(50% 45% at 88% 22%, rgba(255, 120, 200, 0.42), transparent 62%), radial-gradient(60% 50% at 68% 92%, rgba(62, 224, 160, 0.4), transparent 62%), #0a0b14; }
+body.ui-glass .wallpaper::after { background: rgba(8, 9, 16, 0.22); }
+body.ui-glass .titlebar, body.ui-glass .sidebar, body.ui-glass .friends, body.ui-glass .statusbar { background: rgba(255, 255, 255, 0.06); backdrop-filter: blur(26px) saturate(170%); border-color: rgba(255, 255, 255, 0.14); }
+body.ui-glass .main { background: transparent; }
+body.ui-glass .panel, body.ui-glass .card, body.ui-glass .strip, body.ui-glass .set-card, body.ui-glass .top-item, body.ui-glass .theme,
+body.ui-glass .border-opt, body.ui-glass .ui-card, body.ui-glass .account-card, body.ui-glass .bell-menu, body.ui-glass .search-menu,
+body.ui-glass .modal, body.ui-glass .profile.v2, body.ui-glass .pick {
+  background: rgba(255, 255, 255, 0.09); border: 1px solid rgba(255, 255, 255, 0.22); backdrop-filter: blur(22px) saturate(170%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(255, 255, 255, 0.05), 0 10px 34px rgba(0, 0, 0, 0.28); border-radius: 18px;
+}
+body.ui-glass .card .card-body { background: transparent; }
+body.ui-glass .btn { backdrop-filter: blur(10px); border-color: rgba(255, 255, 255, 0.3); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+body.ui-glass .btn.light { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 18px rgba(0, 0, 0, 0.25); }
+body.ui-glass .popup { backdrop-filter: blur(20px); background: rgba(30, 34, 56, 0.55); border-color: rgba(255, 255, 255, 0.24); }
+body.ui-glass .modal.upload { background: rgba(30, 34, 56, 0.6); }
+body.ui-glass .drop { background: rgba(255, 255, 255, 0.05); }
+body.ui-glass .search, body.ui-glass .field, body.ui-glass .input { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.2); }
+body.ui-glass .side-item.active, body.ui-glass .nav-btn[aria-current="page"] { background: rgba(255, 255, 255, 0.14); }
+body.ui-glass .art { border-radius: 0; }
+
+/* ---- Cartoony ---- */
+body.ui-cartoon { --bg: #fff3cf; --panel: #ffffff; --panel-2: #ffe58a; --line: #1b1b1b; --line-2: #1b1b1b; --text: #1b1b1b; --muted: #4b3f2f; --dim: #6b5b45; --green: #1f9d55; --amber: #e8890c;
+  --font: "Comic Sans MS", "Chalkboard SE", "Marker Felt", "Comic Neue", "Segoe Print", cursive, sans-serif; --serif: "Comic Sans MS", "Chalkboard SE", "Marker Felt", cursive, sans-serif; }
+body.ui-cartoon:not(.themed) .wallpaper { background: radial-gradient(rgba(27, 27, 27, 0.13) 2px, transparent 2.5px) 0 0 / 22px 22px, #fff3cf; }
+body.ui-cartoon .wallpaper::after { background: transparent; }
+body.ui-cartoon .titlebar, body.ui-cartoon .statusbar { background: #ffd84d; border-color: #1b1b1b; border-width: 3px; }
+body.ui-cartoon .sidebar, body.ui-cartoon .friends { background: #fff3cf; border-color: #1b1b1b; border-width: 3px; }
+body.ui-cartoon .main { background: transparent; }
+body.ui-cartoon .panel, body.ui-cartoon .card, body.ui-cartoon .strip, body.ui-cartoon .set-card, body.ui-cartoon .top-item, body.ui-cartoon .theme,
+body.ui-cartoon .border-opt, body.ui-cartoon .ui-card, body.ui-cartoon .account-card, body.ui-cartoon .bell-menu, body.ui-cartoon .search-menu,
+body.ui-cartoon .modal, body.ui-cartoon .profile.v2, body.ui-cartoon .pick { background: #fff; border: 3px solid #1b1b1b; border-radius: 16px; box-shadow: 4px 4px 0 #1b1b1b; color: #1b1b1b; }
+body.ui-cartoon .card .card-body { background: #fff; }
+body.ui-cartoon .btn { border: 3px solid #1b1b1b; border-radius: 999px; box-shadow: 3px 3px 0 #1b1b1b; font-weight: 700; color: #1b1b1b; background: #fff; transition: transform 0.1s ease, box-shadow 0.1s ease; }
+body.ui-cartoon .btn:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 #1b1b1b; background: #fff8dc; }
+body.ui-cartoon .btn:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 0 0 0 #1b1b1b; }
+body.ui-cartoon .btn.light { background: var(--accent); color: var(--accent-ink); border-color: #1b1b1b; }
+body.ui-cartoon .btn.light:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+body.ui-cartoon .btn.update { background: #ffb347; color: #1b1b1b; border-color: #1b1b1b; }
+body.ui-cartoon .btn.danger { background: #ffd2d2; color: #8c1d1d; border-color: #1b1b1b; }
+body.ui-cartoon .btn.ghost { background: #fff; }
+body.ui-cartoon .side-item { color: #1b1b1b; font-weight: 700; }
+body.ui-cartoon .side-item.active { background: #ffd84d; border-radius: 12px; box-shadow: 3px 3px 0 #1b1b1b; outline: 3px solid #1b1b1b; outline-offset: -3px; }
+body.ui-cartoon .search, body.ui-cartoon .field, body.ui-cartoon .input { background: #fff; border: 3px solid #1b1b1b; border-radius: 999px; color: #1b1b1b; }
+body.ui-cartoon .input { border-radius: 12px; }
+body.ui-cartoon .bar, body.ui-cartoon .p-bar { background: #e8dfc2; border: 2px solid #1b1b1b; height: 9px; border-radius: 9px; }
+body.ui-cartoon .badge, body.ui-cartoon .star, body.ui-cartoon .round { background: #fff; border: 2px solid #1b1b1b; color: #1b1b1b; }
+body.ui-cartoon .badge.busy { background: #ffb347; color: #1b1b1b; }
+body.ui-cartoon .badge.run { background: #9be89b; color: #1b1b1b; }
+body.ui-cartoon .tab { color: #4b3f2f; font-weight: 700; }
+body.ui-cartoon .tab.on { color: #1b1b1b; border-color: #1b1b1b; }
+body.ui-cartoon .popup { background: #fff; color: #1b1b1b; border: 3px solid #1b1b1b; box-shadow: 5px 5px 0 #1b1b1b; }
+body.ui-cartoon .popup.progress { background: #d6e4ff; }
+body.ui-cartoon .popup.success { background: #c8f5d0; }
+body.ui-cartoon .popup.error { background: #ffd2d2; }
+body.ui-cartoon .p-body p, body.ui-cartoon .p-pct { color: #3a3126; }
+body.ui-cartoon .p-x { color: #1b1b1b; }
+body.ui-cartoon .p-btn { background: #fff; color: #1b1b1b; border: 2px solid #1b1b1b; }
+body.ui-cartoon .modal.upload { background: #fff; }
+body.ui-cartoon .drop { background: #fff8dc; border: 3px dashed #1b1b1b; }
+body.ui-cartoon .avatar { border: 3px solid #1b1b1b; }
+body.ui-cartoon .acc-bg::after { background: linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.86) 40%, rgba(255, 255, 255, 0.1) 100%); }
+body.ui-cartoon .moon-dark { fill: #d9cfa8; }
+body.ui-cartoon .moon-lit { fill: #1b1b1b; }
+body.ui-cartoon .loader p, body.ui-cartoon .sub, body.ui-cartoon .card-sub { color: #4b3f2f; }
+body.ui-cartoon .page-head h1, body.ui-cartoon .detail h1 { text-shadow: 3px 3px 0 #ffd84d; }
+body.ui-cartoon .brand { color: #1b1b1b; }
+body.ui-cartoon .icon-btn, body.ui-cartoon .crumb { color: #1b1b1b; }
+body.ui-cartoon .switch { background: #c9bd94; border: 2px solid #1b1b1b; }
+body.ui-cartoon .switch.on { background: var(--accent); }
+
+/* a game without cover art shows its name in the hero text already */
+.hero .art-title { display: none; }
+/* the hero is always dark, so its text stays light in every style */
+body.ui-cartoon .hero { --text: #ffffff; --muted: #d5d9e2; --dim: #a8afc0; color: #ffffff; }
+body.ui-cartoon .hero .btn.ghost { color: #1b1b1b; }

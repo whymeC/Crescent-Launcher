@@ -124,6 +124,7 @@ async function deepScan({ roots = driveRoots(), known = [], onProgress, shouldSt
   for (let dir of candidates) {
     while (GENERIC_DIR.test(path.basename(dir)) && !rootSet.has(norm(path.dirname(dir)))) dir = path.dirname(dir);
     if (GENERIC_DIR.test(path.basename(dir)) || isKnown(dir)) continue;
+    if (knownPaths.some((k) => k.startsWith(norm(dir) + path.sep))) continue; // surrounds a game we already have
     dirs.add(dir);
   }
   const list = [...dirs].filter((d) => ![...dirs].some((o) => o !== d && norm(d).startsWith(norm(o) + path.sep)));

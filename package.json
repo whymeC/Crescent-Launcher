@@ -1,7 +1,7 @@
 {
   "name": "crescent-launcher",
   "productName": "Crescent",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Crescent: a game launcher that plays every game installed on your PC",
   "main": "main.js",
   "author": "Keano Koopman <keanokoopman.2009@gmail.com>",
@@ -29,6 +29,10 @@
       "scanner.js",
       "deepscan.js",
       "tracker.js",
+      "color.js",
+      "milestones.js",
+      "perf.js",
+      "overlay-preload.js",
       "changelog.json",
       "build/icon.png",
       "renderer/**/*",
@@ -85,6 +89,10 @@
       {
         "from": "images",
         "to": "images"
+      },
+      {
+        "from": "tools",
+        "to": "tools"
       }
     ]
   },
