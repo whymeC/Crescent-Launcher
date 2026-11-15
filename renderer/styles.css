@@ -662,3 +662,90 @@ body.ui-cartoon .switch.on { background: var(--accent); }
 /* the hero is always dark, so its text stays light in every style */
 body.ui-cartoon .hero { --text: #ffffff; --muted: #d5d9e2; --dim: #a8afc0; color: #ffffff; }
 body.ui-cartoon .hero .btn.ghost { color: #1b1b1b; }
+
+/* ===================== 1.0.6 ===================== */
+
+/* AFK mode: everything stops moving and is hidden behind a dark screen */
+.afk-screen { position: fixed; inset: 0; z-index: 500; display: none; place-items: center; background: #06070a; color: #8d93a1; font: 500 30px var(--font); letter-spacing: 0.05em; }
+body.afk .afk-screen { display: grid; }
+body.afk .shell, body.afk .wallpaper, body.afk .popups, body.afk #modal-root, body.afk .loader { display: none !important; }
+body.afk *, body.afk *::before, body.afk *::after { animation: none !important; transition: none !important; }
+/* switching interface style: no half-finished transitions (they showed up as a flashing bar) */
+body.switching *, body.switching *::before, body.switching *::after { transition: none !important; animation: none !important; }
+
+/* Drop-down menu */
+.dd { position: relative; display: inline-block; }
+.dd-btn { display: flex; align-items: center; gap: 8px; padding: 2px 4px; background: none; border: 0; color: var(--text); font-weight: 500; }
+.dd-btn .ico { width: 14px; height: 14px; color: var(--muted); transition: transform 0.2s ease; }
+.dd.open .dd-btn .ico { transform: rotate(180deg); }
+.dd-menu { display: none; position: absolute; top: calc(100% + 12px); min-width: 190px; z-index: 80; padding: 6px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5); }
+.dd.left .dd-menu { left: -8px; }
+.dd.right .dd-menu { right: -8px; }
+.dd.open .dd-menu { display: block; animation: ddIn 0.14s ease; }
+@keyframes ddIn { from { opacity: 0; transform: translateY(-4px); } }
+.dd-opt { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%; padding: 9px 12px; background: none; border: 0; border-radius: 8px; color: var(--text); text-align: left; }
+.dd-opt:hover, .dd-opt:focus-visible { background: var(--panel); outline: none; }
+.dd-opt.on { color: var(--accent); }
+.dd-opt .ico { width: 14px; height: 14px; }
+.field.dd-field { gap: 12px; }
+body.ui-glass .dd-menu { background: rgba(30, 34, 56, 0.7); backdrop-filter: blur(22px); border-color: rgba(255, 255, 255, 0.24); }
+body.ui-cartoon .dd-menu { background: #fff; border: 3px solid #1b1b1b; box-shadow: 4px 4px 0 #1b1b1b; border-radius: 14px; }
+body.ui-cartoon .dd-opt:hover, body.ui-cartoon .dd-opt:focus-visible { background: #ffe58a; }
+body.ui-cartoon .dd-btn { color: #1b1b1b; }
+
+/* Editor (profile picture, banner, mini profile) */
+.modal.editor { width: 600px; max-width: calc(100vw - 40px); padding: 24px; }
+.modal.editor h3 { font: 400 22px var(--serif); margin-bottom: 4px; }
+.editor-stage { display: grid; place-items: center; padding: 16px; margin: 14px 0; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+.editor-preview { position: relative; overflow: hidden; background: #000; cursor: grab; touch-action: none; max-width: 100%; }
+.editor-preview.drag { cursor: grabbing; }
+.editor-preview.avatar { width: 220px; border-radius: 50%; }
+.editor-preview.banner { width: 100%; border-radius: 10px; max-height: 300px; }
+.editor-preview.mini { width: 300px; border-radius: 10px; }
+.editor-preview img, .editor-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+.ed-row { display: grid; grid-template-columns: 90px 1fr 56px; align-items: center; gap: 12px; margin: 8px 0; }
+.ed-row label { color: var(--muted); }
+.ed-row output { color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.dim-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin: 4px 0 16px; }
+
+/* Account page: bigger profile picture, same button placement */
+.profile-bar .avatar { width: 128px; height: 128px; margin-top: -64px; font-size: 44px; }
+.avatar video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar.bd-aurora video, .avatar.bd-stellar video { border-radius: 50%; }
+
+/* Home: five games under Jump Back In when the launcher is maximized and the friends list is hidden */
+.cards.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+/* Wallpaper darkening slider drives the overlay */
+body.themed .wallpaper::after { background: rgba(8, 9, 11, var(--wall-dim, 0.5)); }
+
+/* Banner: its own layer, so scrolling does not tear it */
+.banner { transform: translateZ(0); backface-visibility: hidden; }
+.page { will-change: scroll-position; }
+
+/* Widgets with a picture, a GIF or a video */
+.widget.media-widget { padding: 0; overflow: hidden; }
+.w-media { position: relative; width: 100%; max-height: 260px; overflow: hidden; background: #000; }
+.w-media img, .w-media video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.widget.media-widget .w-x { background: rgba(10, 11, 13, 0.65); color: #fff; z-index: 2; }
+
+/* Downloads: a row opens into a paragraph about how the update is going */
+.dl-wrap { margin-bottom: 14px; }
+.dl-wrap .strip { margin-bottom: 0; cursor: pointer; }
+.dl-wrap .strip[aria-expanded="true"] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.dl-detail { padding: 16px 18px 18px; background: var(--panel); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; animation: pageIn 0.2s ease; }
+.dl-line { display: flex; justify-content: space-between; margin: 12px 0 6px; font-size: 13px; }
+.dl-line span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+.dl-stats { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 16px; color: var(--muted); font-size: 12px; }
+.dl-stats b { display: block; color: var(--text); font-size: 13px; margin-top: 2px; }
+.dl-note { margin-top: 14px; color: var(--dim); font-size: 12px; line-height: 1.5; }
+.dl-err { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: rgba(255, 90, 100, 0.12); color: #ffb3ba; font-size: 12px; }
+.dl-pause { flex: none; }
+.input.short { max-width: 220px; }
+
+/* keep the account buttons where they were, even with the bigger profile picture */
+.profile-bar { gap: 6px 16px; }
+.profile-bar .who { flex: 1 1 160px; }
+/* small cover tiles (downloads, widgets, search) must not cut their title in half */
+.strip .art .art-title, .w-game .art .art-title { font-size: 10px; letter-spacing: 0.06em; padding: 6px; line-height: 1.2; }

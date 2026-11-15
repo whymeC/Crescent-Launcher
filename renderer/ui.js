@@ -28,6 +28,8 @@ window.UI = (() => {
     trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a2 2 0 0 0 2 4M16 6h3a2 2 0 0 1-2 4M12 13v4M9 20h6"/>',
     tag: '<path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1"/>',
     x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    chev: '<path d="M6 9l6 6 6-6"/>',
+    pause: '<rect x="7" y="5" width="3.6" height="14" rx="1"/><rect x="13.4" y="5" width="3.6" height="14" rx="1"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>', trash: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
     palette: '<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.5-2.5H17a4 4 0 0 0 4-4c0-5-4-9.5-9-9.5z"/>',
   };
@@ -169,6 +171,45 @@ window.UI = (() => {
     });
   }
 
+
+  /* ---------------- drop-down menu that matches the launcher ---------------- */
+
+  let ddReady = false;
+  function dropdown({ value, options, onChange, label, align = 'left' }) {
+    if (!ddReady) {
+      ddReady = true;
+      document.addEventListener('mousedown', (e) => document.querySelectorAll('.dd.open').forEach((d) => { if (!d.contains(e.target)) d.classList.remove('open'); }));
+    }
+    const root = h('div', { class: `dd ${align}` });
+    const val = h('span', { class: 'dd-val' });
+    const btn = h('button', { class: 'dd-btn', type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': label || 'Choose' }, val, icon('chev'));
+    const menu = h('div', { class: 'dd-menu', role: 'listbox' });
+    const isOpen = () => root.classList.contains('open');
+    const setOpen = (open) => {
+      root.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', String(open));
+      if (open) (menu.querySelector('.dd-opt.on') || menu.querySelector('.dd-opt'))?.focus();
+    };
+    function draw() {
+      val.textContent = (options.find((o) => o[0] === value) || [])[1] ?? '';
+      menu.replaceChildren(...options.map(([v, l]) => h('button', {
+        class: `dd-opt${v === value ? ' on' : ''}`, type: 'button', role: 'option', 'aria-selected': String(v === value),
+        onclick: () => { value = v; setOpen(false); draw(); btn.focus(); onChange(v); },
+      }, h('span', { text: l }), v === value ? icon('check') : null)));
+    }
+    btn.addEventListener('click', () => setOpen(!isOpen()));
+    root.addEventListener('keydown', (e) => {
+      const opts = [...menu.querySelectorAll('.dd-opt')];
+      const i = opts.indexOf(document.activeElement);
+      if (e.key === 'Escape' && isOpen()) { e.stopPropagation(); setOpen(false); btn.focus(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); if (!isOpen()) setOpen(true); else opts[Math.min(opts.length - 1, i + 1)]?.focus(); }
+      else if (e.key === 'ArrowUp' && isOpen()) { e.preventDefault(); opts[Math.max(0, i - 1)]?.focus(); }
+    });
+    root.append(btn, menu);
+    draw();
+    return root;
+  }
+
   /* ---------------- moon phase loader ---------------- */
 
   // Lit shape of each phase: waxing (right lit) then waning (left lit).
@@ -199,5 +240,5 @@ window.UI = (() => {
     return row;
   }
 
-  return { icon, h, popup, modal, uploadModal, moons };
+  return { icon, h, popup, modal, uploadModal, moons, dropdown };
 })();

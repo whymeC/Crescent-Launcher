@@ -10,21 +10,23 @@ const IS_WIN = process.platform === 'win32';
 const exec = (cmd, args) =>
   new Promise((resolve) => execFile(cmd, args, { windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (err, out) => resolve(err ? '' : out)));
 
+// Programs that have a visible window, the same ones that appear in the taskbar. A background process
+// without a window (for example a wallpaper engine without its menu open) is not a game that is running.
 async function listProcesses() {
   if (IS_WIN) {
     const out = await exec('powershell', [
       '-NoProfile', '-NonInteractive', '-Command',
-      'Get-Process | Where-Object { $_.Path } | ForEach-Object { "$($_.Id)|$($_.Path)" }',
+      'Get-Process | Where-Object { $_.Path -and $_.MainWindowHandle -ne 0 } | ForEach-Object { "$($_.Id)`t$($_.MainWindowTitle)`t$($_.Path)" }',
     ]);
     return out.split(/\r?\n/).map((l) => {
-      const i = l.indexOf('|');
-      return i > 0 ? { pid: Number(l.slice(0, i)), path: l.slice(i + 1).trim() } : null;
+      const [pid, title, ...rest] = l.split('\t');
+      return pid && rest.length ? { pid: Number(pid), title: title || '', path: rest.join('\t').trim() } : null;
     }).filter(Boolean);
   }
   const out = await exec('ps', ['-axo', 'pid=,command=']);
   return out.split('\n').map((l) => {
     const m = l.trim().match(/^(\d+)\s+(.*)$/);
-    return m ? { pid: Number(m[1]), path: m[2] } : null;
+    return m ? { pid: Number(m[1]), title: '', path: m[2] } : null;
   }).filter(Boolean);
 }
 
@@ -43,6 +45,7 @@ function matchGame(game, procs) {
     if (!IS_WIN) return (dirOk && pp.includes(dir + path.sep)) || (target && pp.startsWith(target));
     if (dirOk && pp.startsWith(dir + path.sep)) return true;
     if (target && game.store !== 'riot' && pp === target) return true;
+    if (game.titleMatch && p.title && new RegExp(game.titleMatch, 'i').test(p.title)) return true;
     return hints.includes(path.basename(pp));
   });
 }

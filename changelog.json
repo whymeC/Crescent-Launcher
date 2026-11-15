@@ -94,5 +94,45 @@
       "A game found by more than one source, such as Minecraft Dungeons, now appears only once in your library.",
       "A game without cover art no longer shows its name twice in the Jump Back In box."
     ]
+  },
+  "1.0.6": {
+    "features": [
+      "Animated profile pictures: use a GIF or a video of 10 seconds at most.",
+      "A profile picture editor, a banner editor and a mini profile editor. Zoom, move and (for videos) choose the start and end before or after you upload.",
+      "Three new widget types: Image, GIF and Video. Upload your own and place it on Home or Milestones.",
+      "A wallpaper darkening slider: left shows the wallpaper fully, right barely shows it.",
+      "AFK Mode: when Crescent is minimized, not in front, not used for a while, or a game is starting or running, it stops moving and shows \"AFK Mode is Active\".",
+      "Pause and Resume for updates that Crescent runs.",
+      "Each store now updates games with its own tool: SteamCMD for Steam, Legendary for Epic Games, URI protocol handlers for the EA app and Ubisoft Connect, the Battle.net client protocol, PowerShell for Xbox and Microsoft Store, command lines for Riot and Rockstar, and the local program for games found on this PC.",
+      "Modrinth, CurseForge and the Minecraft Launcher are now in your library.",
+      "Click a game that is updating to see how far it is: downloaded data, updated files, speed and time remaining.",
+      "A confirmation window before a tag is deleted.",
+      "Compatibility mode in Settings turns off graphics acceleration."
+    ],
+    "reworks": [
+      "Banners can be any picture, GIF or video up to 1280 by 1000 pixels, as long as it is wider than it is tall.",
+      "Your status is now automatic: In-Game: game name while you start or play a game, AFK in AFK Mode, Online otherwise. You can still choose Online, Chilling or Do Not Disturb yourself.",
+      "The Home screen shows 5 games under Jump Back In. They stand in a row when Crescent is maximized with the friends list hidden, and underneath each other otherwise.",
+      "Quick Launch shows your 5 most played games.",
+      "The profile picture on the Account page is bigger. The buttons stay where they were.",
+      "The Account page now says \"Your identity in the launcher.\"",
+      "The Sort by menu in the Library has a new look that matches the launcher.",
+      "Check for updates now tells you when Crescent is up to date.",
+      "The upload window shows the real banner sizes.",
+      "The game page no longer shows build numbers after the store name.",
+      "Nature's Creativity is now called Midnight Eclipse over the Mountains."
+    ],
+    "optimizations": [
+      "In AFK Mode the launcher hides everything, pauses videos and animations, checks less often and runs at a lower priority, so your PC can focus on the game."
+    ],
+    "bugfixes": [
+      "The header locator in the Library now shows the tab you are on (Installed, Favorites or a tag), not always All games.",
+      "A new widget now appears on the Home screen straight away.",
+      "No more flashing bar when you change the interface style.",
+      "Play time only counts while the game's own window is open. Background programs such as the Wallpaper Engine wallpaper no longer count.",
+      "Open menus are no longer closed by a background refresh.",
+      "Small cover tiles no longer cut their title in half.",
+      "A banner or profile picture that is scrolled no longer tears at its edge (turn on Compatibility mode if it still does)."
+    ]
   }
 }

@@ -94,3 +94,11 @@ Auto-update only runs in an installed build, never under `npm start`.
 - **Performance overlay:** shows CPU, GPU and RAM. Frames per second cannot be read from inside a game without extra software, so FPS only appears when
   `PresentMon.exe` (a free tool from Intel) is placed in the `tools` folder. It works with windowed and borderless games, not exclusive fullscreen.
 - The `tools` folder next to `package.json` must exist (it holds a README) because the build copies it with the app.
+
+## 1.0.6 notes
+
+- **Banner, profile picture and mini profile editor:** edits (zoom, position, start and end) are stored next to the file and applied when it is shown, so the original is never changed. GIFs and videos can be 10 seconds at most.
+- **Updating games:** SteamCMD and Legendary are downloaded automatically the first time you update a game with them. Sign in once under Settings, Game updating (Crescent never sees your password).
+  Only updates that Crescent runs through SteamCMD or Legendary can be paused and resumed. Updates running inside Steam or another launcher are paused there.
+- **Minecraft launchers:** Modrinth, CurseForge and the Minecraft Launcher count as playing while Minecraft or the launcher has a window open.
+- **AFK Mode** can be turned off in Settings, Performance. With a game running it starts after 15 seconds without clicks, or at once when you click away from Crescent.

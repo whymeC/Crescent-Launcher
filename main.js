@@ -16,6 +16,7 @@ const { listProcesses, matchGame, stopProcesses } = require('./tracker');
 const { dominantAccent, isHex } = require('./color');
 const { BORDERS, totalSeconds, checkMilestones } = require('./milestones');
 const perf = require('./perf');
+const { createUpdates } = require('./updates');
 
 // Our own address type for the user's pictures/videos and the bundled wallpapers.
 protocol.registerSchemesAsPrivileged([
@@ -23,6 +24,12 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const isDev = process.argv.includes('--dev');
+
+// Compatibility mode (Settings) turns off graphics acceleration. It has to be decided before the app starts.
+try {
+  const early = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'library.json'), 'utf8'));
+  if (early.settings?.compatibilityMode) app.disableHardwareAcceleration();
+} catch { /* first start */ }
 const isMac = process.platform === 'darwin';
 const BLOCKED_PROTOCOLS = new Set(['file:', 'javascript:', 'data:', 'vbscript:', 'blob:']);
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -40,7 +47,7 @@ const THEMES = {
     { id: 'singularity', name: 'Singularity', file: 'Singularity.mp4' },
   ],
   still: [
-    { id: 'natures-creativity', name: "Nature's Creativity", file: 'NaturesCreativity.png' },
+    { id: 'natures-creativity', name: 'Midnight Eclipse over the Mountains', file: 'NaturesCreativity.png' },
     { id: 'snowy-mountains', name: 'Snowy Mountains', file: 'SnowyMountains.png' },
     { id: 'great-wave', name: 'The Great Wave off Kanagawa', file: 'TheGreatWaveoffKanagawa.png' },
     { id: 'mount-fuji', name: 'Mount Fuji', file: 'MountFuji.png' },
@@ -53,7 +60,10 @@ autoUpdater.logger = log;
 
 let mainWindow = null;
 let updaterStatus = { state: 'idle' };
+let afk = false;
+const QUIET_WHILE_AFK = new Set(['updater:status', 'milestones:new', 'updates:changed']);
 const send = (channel, payload) => {
+  if (afk && !QUIET_WHILE_AFK.has(channel)) return;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
 };
 
@@ -67,12 +77,14 @@ const DEFAULT_SETTINGS = {
   autoScan: true, deepScan: true, trackPlaytime: true,
   autoCheckUpdates: true, autoDownloadUpdates: true, showUpdateLogs: true, notifyGameUpdates: true,
   heroTransition: true,
+  afkMode: true, afkMinutes: 5, compatibilityMode: false, steamUsername: '',
 };
 const DEFAULTS = () => ({
   profile: {
     name: 'Player', avatar: null, banner: null, theme: { type: 'none', id: null },
     status: { preset: 'online', message: '' }, border: 'none', glow: { on: false, color: '#6c8cff' },
     accent: { mode: 'default', color: '#f1f1f3' }, uiTheme: 'default',
+    avatarType: 'image', avatarEdit: null, bannerEdit: null, miniEdit: null, wallpaperDim: 50,
   },
   settings: { ...DEFAULT_SETTINGS },
   manual: [], hidden: [], stats: {}, metaCache: {},
@@ -99,6 +111,8 @@ function loadData() {
     // older versions had a single "minimize" switch
     if (saved.settings?.minimizeOnGameStart && !saved.settings.onGameStart) data.settings.onGameStart = 'taskbar';
     delete data.settings.minimizeOnGameStart;
+    // In-Game and AFK are set automatically now; only Online, Chilling and Do Not Disturb are chosen by hand
+    if (!['online', 'chilling', 'dnd'].includes(data.profile.status?.preset)) data.profile.status = { ...data.profile.status, preset: 'online' };
   } catch (err) {
     if (hadData) log.warn('library.json unreadable, starting fresh', err);
   }
@@ -306,7 +320,7 @@ async function getLibrary(force) {
 
   const seen = new Set();
   const games = [];
-  const fromStores = cache.scan.games.filter((g) => g.store === 'steam' || !NOT_GAME.test(g.title));
+  const fromStores = cache.scan.games.filter((g) => g.store === 'steam' || g.store === 'minecraft' || !NOT_GAME.test(g.title));
 
   // A game found by the drive search is dropped when a launcher (or you) already added the same game:
   // same folder, a folder inside or around it, same program, or the same name.
@@ -384,6 +398,7 @@ function publicProfile() {
   const p = data.profile;
   return {
     name: p.name, status: p.status, border: p.border, glow: p.glow, accent: p.accent, uiTheme: p.uiTheme,
+    avatarType: p.avatarType || 'image', avatarEdit: p.avatarEdit, bannerEdit: p.bannerEdit, miniEdit: p.miniEdit, wallpaperDim: p.wallpaperDim ?? 50,
     avatarUrl: p.avatar ? `crescent://media/${p.avatar}` : null,
     banner: p.banner ? { url: `crescent://media/${p.banner.file}`, type: p.banner.type, width: p.banner.width, height: p.banner.height } : null,
     theme: p.theme,
@@ -395,7 +410,8 @@ async function buildList(force) {
   enrich(games); // fills in descriptions and artwork in the background
   return {
     games, stores, profile: publicProfile(), settings: data.settings, disk: await diskInfo(games), running: [...running.keys()], scan: scanState,
-    widgets: data.widgets, tags: data.tags, gameTags: data.gameTags, milestones: data.milestones.slice(0, 60),
+    updateJobs: getUpdates().list(),
+    widgets: data.widgets.map((w) => (w.file ? { ...w, url: `crescent://media/${w.file}` } : w)), tags: data.tags, gameTags: data.gameTags, milestones: data.milestones.slice(0, 60),
     borders: BORDERS, totalSeconds: Math.round(totalSeconds(data)),
   };
 }
@@ -481,6 +497,18 @@ async function launchGame(game) {
 
 // Looks at the running programs every few seconds: counts play time and notices when games start or stop.
 let lastTick = Date.now();
+let trackerTimer = null;
+function scheduleTracker() {
+  clearInterval(trackerTimer);
+  trackerTimer = setInterval(trackerTick, afk ? 20000 : 6000);
+}
+function setAppPriority(low) {
+  try {
+    const level = low ? os.constants.priority.PRIORITY_BELOW_NORMAL : os.constants.priority.PRIORITY_NORMAL;
+    for (const m of app.getAppMetrics()) { try { os.setPriority(m.pid, level); } catch { /* not allowed for this process */ } }
+  } catch { /* not supported here */ }
+}
+
 async function trackerTick() {
   const now = Date.now();
   const dt = Math.min((now - lastTick) / 1000, 30);
@@ -537,7 +565,8 @@ async function trackerTick() {
 
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm' };
 const MAX_UPLOAD = 120 * 1024 * 1024;
-const BANNER = { minW: 1280, maxW: 3840, minH: 400, maxH: 700, maxSeconds: 10 };
+const BANNER = { minW: 320, maxW: 1280, maxH: 1000, maxSeconds: 10 };
+const MEDIA_SECONDS = 10;
 const DEEP_SCAN_VERSION = 3; // bump when the drive search gets smarter, so old results are thrown away
 const uploads = new Map();
 
@@ -591,6 +620,12 @@ async function attempt(fn) {
   }
 }
 
+let updatesInstance = null;
+function getUpdates() {
+  updatesInstance ||= createUpdates({ app, net, log, send, openUri, spawnDetached, shell });
+  return updatesInstance;
+}
+
 const prettify = (name) => name.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim() || name;
 const semver = (v) => String(v).split('.').map((n) => parseInt(n, 10) || 0);
 const cmpVer = (a, b) => { const x = semver(a), y = semver(b); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
@@ -608,11 +643,21 @@ function registerIpc() {
 
   handle('games:update', (id) => attempt(async () => {
     const game = await findGame(id);
-    if (game.store !== 'steam') throw new Error('Updates for this game are handled inside its own launcher.');
-    await openUri('steam://nav/downloads'); // starts Steam if it is closed, so its queued update can run
-    await sleep(2500);
-    await openUri(`steam://validate/${game.appId}`); // Steam has no "update now" link; verifying downloads the newest files
+    return getUpdates().start(game, data.settings);
   }));
+  handle('updates:pause', (id) => attempt(async () => { getUpdates().pause(String(id)); }));
+  handle('updates:resume', (id) => attempt(async () => { getUpdates().resume(String(id)); }));
+  handle('updates:cancel', (id) => attempt(async () => { getUpdates().cancel(String(id)); }));
+  handle('updates:signIn', (store) => attempt(async () => ({ message: await getUpdates().signIn(String(store), data.settings) })));
+  handle('updates:tools', () => getUpdates().toolsStatus());
+
+  // Crescent going to sleep (AFK mode): fewer checks and lower priority, so games get everything
+  handle('app:setAfk', (value) => {
+    afk = !!value;
+    scheduleTracker();
+    setAppPriority(afk);
+    return true;
+  });
 
   handle('games:favorite', (id) => {
     let value = false;
@@ -666,8 +711,28 @@ function registerIpc() {
   });
   handle('settings:clearCache', () => { data.metaCache = {}; saveData(); send('library:changed'); return true; });
 
+  const cleanEdit = (e) => {
+    if (!e) return null;
+    const n = (v, lo, hi, d) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : d);
+    const out = { zoom: n(e.zoom, 1, 4, 1), x: n(e.x, 0, 1, 0.5), y: n(e.y, 0, 1, 0.5), start: n(e.start, 0, 600, 0), end: e.end == null ? null : n(e.end, 0, 600, null) };
+    if (out.end != null && out.end <= out.start) out.end = null;
+    return out;
+  };
+  handle('profile:setEdit', (kind, edit) => {
+    const key = { avatar: 'avatarEdit', banner: 'bannerEdit', mini: 'miniEdit' }[kind];
+    if (!key) throw new Error('Unknown edit.');
+    data.profile[key] = cleanEdit(edit);
+    saveData();
+    return publicProfile();
+  });
+  handle('profile:setDim', (value) => {
+    data.profile.wallpaperDim = Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
+    saveData();
+    return publicProfile();
+  });
+
   handle('profile:setStatus', (preset, message) => {
-    if (!['online', 'ingame', 'afk', 'dnd', 'chilling'].includes(preset)) throw new Error('Unknown status.');
+    if (!['online', 'dnd', 'chilling'].includes(preset)) throw new Error('You can choose Online, Chilling or Do Not Disturb. In-Game and AFK are set automatically.');
     data.profile.status = { preset, message: String(message || '').trim().slice(0, 60) };
     saveData();
     return publicProfile();
@@ -709,12 +774,25 @@ function registerIpc() {
   }));
 
   handle('widgets:add', (w) => attempt(async () => {
-    if (!['home', 'milestones'].includes(w?.page) || !['game-time', 'border-hours'].includes(w?.type)) throw new Error('Unknown widget.');
+    if (!['home', 'milestones'].includes(w?.page) || !['game-time', 'border-hours', 'image', 'gif', 'video'].includes(w?.type)) throw new Error('Unknown widget.');
     if (data.widgets.length >= 12) throw new Error('You can have up to 12 widgets.');
-    data.widgets.push({ id: crypto.randomUUID().slice(0, 8), page: w.page, type: w.type, gameId: String(w.gameId || ''), borderId: String(w.borderId || 'next') });
+    const item = { id: crypto.randomUUID().slice(0, 8), page: w.page, type: w.type, gameId: String(w.gameId || ''), borderId: String(w.borderId || 'next') };
+    if (['image', 'gif', 'video'].includes(w.type)) {
+      const file = path.basename(String(w.file || ''));
+      if (!file || !fs.existsSync(path.join(mediaDir(), file))) throw new Error('That file was not uploaded.');
+      Object.assign(item, { file, width: Number(w.width) || 16, height: Number(w.height) || 9 });
+    }
+    data.widgets.push(item);
     saveData();
+    return { widgets: data.widgets.map((x) => (x.file ? { ...x, url: `crescent://media/${x.file}` } : x)) };
   }));
-  handle('widgets:remove', (id) => { data.widgets = data.widgets.filter((w) => w.id !== String(id)); saveData(); return true; });
+  handle('widgets:remove', (id) => {
+    const gone = data.widgets.find((w) => w.id === String(id));
+    if (gone?.file) removeMedia(gone.file);
+    data.widgets = data.widgets.filter((w) => w.id !== String(id));
+    saveData();
+    return data.widgets.map((x) => (x.file ? { ...x, url: `crescent://media/${x.file}` } : x));
+  });
 
   handle('tags:create', (name) => attempt(async () => {
     const clean = String(name || '').trim().slice(0, 24);
@@ -764,7 +842,7 @@ function registerIpc() {
   /* uploads, sent in pieces so the interface can show real progress */
   handle('media:begin', ({ kind, ext }) => {
     const e = String(ext).toLowerCase();
-    if (!['avatar', 'banner'].includes(kind) || !MIME[e]) throw new Error('This kind of file is not supported.');
+    if (!['avatar', 'banner', 'widget'].includes(kind) || !MIME[e]) throw new Error('This kind of file is not supported.');
     fs.mkdirSync(mediaDir(), { recursive: true });
     const id = crypto.randomUUID();
     const file = `${kind}-${Date.now()}.${e}`;
@@ -781,20 +859,22 @@ function registerIpc() {
     await new Promise((res, rej) => u.ws.write(chunk, (err) => (err ? rej(err) : res())));
     return true;
   });
-  handle('media:end', async (id, info) => {
+  handle('media:end', async (id, info, edit) => {
     const u = uploads.get(id);
     if (!u) throw new Error('Upload was cancelled.');
     await new Promise((res) => u.ws.end(res));
     uploads.delete(id);
+    if (u.kind !== 'banner' && info?.type === 'video' && info.duration > MEDIA_SECONDS + 0.05) { fs.rmSync(u.tmp, { force: true }); throw new Error('Videos can be at most 10 seconds long.'); }
     if (u.kind === 'banner') {
-      const okSize = info?.width >= BANNER.minW && info.width <= BANNER.maxW && info.height >= BANNER.minH && info.height <= BANNER.maxH;
+      const okSize = info?.width >= BANNER.minW && info.width <= BANNER.maxW && info.height <= BANNER.maxH && info.width > info.height;
       const okLen = info?.type !== 'video' || info.duration <= BANNER.maxSeconds + 0.05;
       if (!okSize || !okLen) { fs.rmSync(u.tmp, { force: true }); throw new Error('This banner does not meet the size or length rules.'); }
     }
     const final = path.join(mediaDir(), u.file);
     fs.renameSync(u.tmp, final);
-    if (u.kind === 'avatar') { removeMedia(data.profile.avatar); data.profile.avatar = u.file; }
-    else { removeMedia(data.profile.banner?.file); data.profile.banner = { file: u.file, type: info.type, width: info.width, height: info.height }; }
+    if (u.kind === 'widget') return { file: u.file, fileUrl: pathToFileURL(final).toString() };
+    if (u.kind === 'avatar') { removeMedia(data.profile.avatar); data.profile.avatar = u.file; data.profile.avatarType = info.type === 'video' ? 'video' : 'image'; data.profile.avatarEdit = cleanEdit(edit); }
+    else { removeMedia(data.profile.banner?.file); data.profile.banner = { file: u.file, type: info.type, width: info.width, height: info.height }; data.profile.bannerEdit = cleanEdit(edit); data.profile.miniEdit = null; }
     saveData();
     return { profile: publicProfile(), fileUrl: pathToFileURL(final).toString() };
   });
@@ -804,8 +884,8 @@ function registerIpc() {
     return true;
   });
   handle('media:clear', (kind) => {
-    if (kind === 'avatar') { removeMedia(data.profile.avatar); data.profile.avatar = null; }
-    if (kind === 'banner') { removeMedia(data.profile.banner?.file); data.profile.banner = null; }
+    if (kind === 'avatar') { removeMedia(data.profile.avatar); data.profile.avatar = null; data.profile.avatarEdit = null; data.profile.avatarType = 'image'; }
+    if (kind === 'banner') { removeMedia(data.profile.banner?.file); data.profile.banner = null; data.profile.bannerEdit = null; data.profile.miniEdit = null; }
     saveData();
     return publicProfile();
   });
@@ -834,7 +914,9 @@ function registerIpc() {
   handle('updater:status', () => updaterStatus);
   handle('updater:check', () => attempt(async () => {
     if (!app.isPackaged) throw new Error('Updates only work in the installed app.');
-    await autoUpdater.checkForUpdatesAndNotify();
+    const result = await autoUpdater.checkForUpdates();
+    const found = !!result?.isUpdateAvailable;
+    return { upToDate: !found, version: found ? result.updateInfo.version : app.getVersion() };
   }));
   handle('updater:download', () => attempt(async () => { await autoUpdater.downloadUpdate(); }));
   handle('updater:install', () => autoUpdater.quitAndInstall());
@@ -905,13 +987,13 @@ if (!app.requestSingleInstanceLock()) {
     if (app.isPackaged) setupAutoUpdater(); // updates only work in installed builds
 
     setTimeout(trackerTick, 3000);
-    setInterval(trackerTick, 6000);
+    scheduleTracker();
     const older = Date.now() - data.deepFound.at > DEEP_SCAN_MAX_AGE_MS;
     if (data.settings.deepScan && data.settings.autoScan && older) setTimeout(runDeepScan, 8000);
 
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 
-  app.on('before-quit', () => { app.isQuitting = true; destroyOverlay(); if (tray) tray.destroy(); saveData(); });
+  app.on('before-quit', () => { app.isQuitting = true; data.profile.presence = 'offline'; destroyOverlay(); if (tray) tray.destroy(); saveData(); });
   app.on('window-all-closed', () => { if (!isMac) app.quit(); });
 }

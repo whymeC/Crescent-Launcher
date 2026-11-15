@@ -15,6 +15,7 @@
     snapshot: '', pollTimer: null, heroTimer: null, themeSig: '',
     bannerCache: null, liveBase: {}, miniSig: '', tip: Math.floor(Math.random() * 1000),
     widgets: [], tags: [], gameTags: {}, milestones: [], borders: [], totalSeconds: 0, searchIndex: 0, searchResults: [],
+    jobs: [], openDl: null, dl: {}, afk: false, lastActive: Date.now(), idleTimer: null, lastUi: null, avatarCache: null,
   };
 
   const STORES = {
@@ -43,7 +44,7 @@
   }
   const durationShort = (sec) => (sec >= 3600 ? `${(sec / 3600).toFixed(1)} h` : sec >= 60 ? `${Math.floor(sec / 60)} min` : sec > 0 ? `${Math.round(sec)} s` : '');
   const gb = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)} MB`);
-  const pct = (g) => Math.round((g.progress || 0) * 100);
+  const pct = (g) => { const j = jobOf(g); return j && j.percent ? Math.round(j.percent) : Math.round((g.progress || 0) * 100); };
   const button = (label, kind, onclick, iconName) => h('button', { class: `btn ${kind}`, type: 'button', onclick }, iconName ? icon(iconName) : null, label);
 
   const notify = (title, text, kind = 'info') => popup({ kind, title, text });
@@ -119,9 +120,10 @@
   const byPlayed = (list) => [...list].sort((a, b) => b.playSeconds - a.playSeconds || (b.lastPlayed || 0) - (a.lastPlayed || 0));
   const sortGames = (list) => (state.sort === 'name' ? [...list].sort((a, b) => a.title.localeCompare(b.title)) : state.sort === 'played' ? byPlayed(list) : byRecent(list));
   const needsUpdate = (g) => g.state === 'updating';
-  const pendingUpdates = () => state.games.filter((g) => g.state === 'updating' && g.updating !== 'running');
-  const inProgress = () => state.games.filter((g) => g.state === 'installing' || (g.state === 'updating' && g.updating === 'running'));
-  const buildLine = (g) => [STORES[g.store], g.version && (g.store === 'steam' ? `build ${g.version}` : `v${g.version}`)].filter(Boolean).join(' · ');
+  const jobOf = (g) => state.jobs.find((j) => j.id === g.id && j.state !== 'done');
+  const pendingUpdates = () => state.games.filter((g) => g.state === 'updating' && g.updating !== 'running' && !jobOf(g));
+  const inProgress = () => state.games.filter((g) => g.state === 'installing' || (g.state === 'updating' && g.updating === 'running') || !!jobOf(g));
+  const buildLine = (g) => STORES[g.store] || '';
 
   /* ---------------- game actions ---------------- */
 
@@ -143,10 +145,26 @@
   }
   async function updateGame(g) {
     const r = await api.updateGame(g.id);
-    if (!r.ok) return failure(`Couldn't start the update for ${g.title}. ${r.error}`, () => updateGame(g));
-    notify(`Update sent to Steam`, `Steam will start updating ${g.title}. If nothing happens, open the Downloads tab in Steam.`);
-    setTimeout(() => refresh(true), 3000);
+    if (!r.ok) return failure(`Couldn't update ${g.title}. ${r.error}`, () => updateGame(g));
+    notify(r.started ? 'Update started' : 'Opened for you', r.message);
+    setTimeout(() => refresh(false), 1500);
   }
+
+  const TOOL_LABEL = {
+    steam: 'SteamCMD', epic: 'Legendary', ea: 'EA app URI protocol handler', ubisoft: 'Ubisoft Connect URI protocol handler',
+    battlenet: 'Battle.net client protocol', xbox: 'PowerShell (winget and Get-AppxPackage)', riot: 'Riot Client command line',
+    rockstar: 'Rockstar Launcher command line', minecraft: 'The launcher itself', roblox: 'Roblox',
+    detected: 'Local executable (standalone or DRM-free)', manual: 'Local executable (standalone or DRM-free)',
+  };
+  const TOOL_SHORT = { epic: 'Legendary', ea: 'EA app', ubisoft: 'Ubisoft Connect', battlenet: 'Battle.net', xbox: 'PowerShell', riot: 'Riot Client', rockstar: 'Rockstar Launcher' };
+  const canToolUpdate = (g) => !!TOOL_SHORT[g.store] && g.state === 'installed';
+  const isWideHome = () => !!state.settings.friendsHidden && window.outerWidth >= screen.availWidth - 24 && window.outerHeight >= screen.availHeight - 24;
+  const clock = (sec) => {
+    const s2 = Math.max(0, Math.round(sec));
+    const hh = Math.floor(s2 / 3600), mm = Math.floor((s2 % 3600) / 60), ss = s2 % 60;
+    const two = (n) => String(n).padStart(2, '0');
+    return hh ? `${hh}:${two(mm)}:${two(ss)}` : `${two(mm)}:${two(ss)}`;
+  };
 
   // The main button for a game: Play, Close Game, Update, or a disabled status.
   function gameAction(g, { big = false, playLabel = 'Play' } = {}) {
@@ -154,6 +172,9 @@
     const disabled = (label) => h('button', { class: `btn ${cls}`, type: 'button', disabled: true }, label);
     if (state.running.has(g.id)) return h('button', { class: `btn danger ${cls}`, type: 'button', onclick: () => closeGame(g) }, icon('stop'), 'Close Game');
     if (state.launching.has(g.id)) return disabled('Starting…');
+    const job = jobOf(g);
+    if (job && job.state === 'running') return disabled(`Updating ${Math.round(job.percent)}%`);
+    if (job && job.state === 'paused') return disabled('Update paused');
     if (g.state === 'installing') return disabled(`Installing ${pct(g)}%`);
     if (g.state === 'missing') return disabled('File missing');
     if (g.state === 'updating') {
@@ -209,7 +230,9 @@
   }
 
   function card(g) {
-    const sub = g.state === 'installing' ? STORES[g.store] : [g.lastPlayed ? `Last played ${ago(g.lastPlayed)}` : 'Not played yet', liveText(g, 'short', ' · ')];
+    const sub = g.state === 'installing' ? STORES[g.store]
+      : g.state === 'updating' && g.updating === 'running' && g.downloadTotal ? `${gb(g.downloadDone || 0)} / ${gb(g.downloadTotal)}`
+      : [g.lastPlayed ? `Last played ${ago(g.lastPlayed)}` : 'Not played yet', liveText(g, 'short', ' · ')];
     const open = () => go(`game:${g.id}`);
     return h('article', { class: 'card', tabindex: '0', role: 'link', 'aria-label': g.title, onclick: open, onkeydown: (e) => e.key === 'Enter' && open() },
       artBox(g, ['header', 'hero']),
@@ -235,19 +258,15 @@
 
   /* ---------------- 1.0.5 helpers ---------------- */
 
-  const STATUS_PRESETS = [
-    { id: 'online', label: 'Online' }, { id: 'ingame', label: 'In-Game' }, { id: 'afk', label: 'AFK' },
-    { id: 'dnd', label: 'Do Not Disturb' }, { id: 'chilling', label: 'Chilling' },
-  ];
+  // Chilling and Do Not Disturb are your own choice. In-Game and AFK are worked out by Crescent.
+  const STATUS_PRESETS = [{ id: 'online', label: 'Online' }, { id: 'chilling', label: 'Chilling' }, { id: 'dnd', label: 'Do Not Disturb' }];
   function statusInfo() {
-    const s = state.profile.status || { preset: 'online', message: '' };
-    const preset = STATUS_PRESETS.find((p) => p.id === s.preset) || STATUS_PRESETS[0];
-    let label = s.message || preset.label;
-    if (!s.message && preset.id === 'ingame') {
-      const g = state.games.find((x) => state.running.has(x.id));
-      if (g) label = `In-Game · ${g.title}`;
-    }
-    return { id: preset.id, label };
+    const s2 = state.profile.status || { preset: 'online', message: '' };
+    if (s2.preset === 'dnd' || s2.preset === 'chilling') return { id: s2.preset, label: s2.message || STATUS_PRESETS.find((p) => p.id === s2.preset).label };
+    const active = state.games.find((g) => state.running.has(g.id) || state.launching.has(g.id));
+    if (active) return { id: 'ingame', label: `In-Game: ${active.title}` };
+    if (state.afk) return { id: 'afk', label: 'AFK' };
+    return { id: 'online', label: s2.message || 'Online' };
   }
   const borderClass = () => (state.profile.border && state.profile.border !== 'none' ? ` bd-${state.profile.border}` : '');
   const when = (ts) => `${ago(ts)[0].toUpperCase()}${ago(ts).slice(1)} · ${new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
@@ -271,6 +290,12 @@
     if (p.uiTheme === 'cartoon' && (p.accent?.mode || 'default') === 'default') color = '#ff5a4d';
     document.documentElement.style.setProperty('--accent', color);
     document.documentElement.style.setProperty('--accent-ink', inkFor(color));
+    document.documentElement.style.setProperty('--wall-dim', String(((p.wallpaperDim ?? 50) / 100) * 0.95));
+    if (state.lastUi !== null && state.lastUi !== p.uiTheme) {
+      b.classList.add('switching');
+      setTimeout(() => b.classList.remove('switching'), 450);
+    }
+    state.lastUi = p.uiTheme;
   }
 
   function promptText({ title, text, placeholder = '', confirm = 'Create' }) {
@@ -318,18 +343,29 @@
     const r = await api.createTag(name);
     if (!r.ok) return failure(r.error);
     if (applyTo) await api.setGameTag(applyTo, r.tag.id, true);
-    await refresh(true);
+    await refresh(false);
+  }
+
+  function confirmDialog({ title, text, confirm = 'Delete' }) {
+    return new Promise((resolve) => {
+      let answered = false;
+      modal((close) => [
+        h('h3', { text: title }), h('p', { class: 'sub', text }),
+        h('div', { class: 'modal-actions' }, button('Cancel', 'ghost', close),
+          button(confirm, 'danger', () => { answered = true; resolve(true); close(); })),
+      ], { cls: 'small', onClose: () => { if (!answered) resolve(false); } });
+    });
   }
 
   function tagPanel(g) {
     const on = new Set(state.gameTags[g.id] || []);
     const chips = state.tags.map((t) => h('button', {
       class: `chip-btn${on.has(t.id) ? ' on' : ''}`, type: 'button', 'aria-pressed': String(on.has(t.id)),
-      onclick: async () => { await api.setGameTag(g.id, t.id, !on.has(t.id)); await refresh(true); },
+      onclick: async () => { await api.setGameTag(g.id, t.id, !on.has(t.id)); await refresh(false); },
     }, t.name));
     const quick = state.tags.length ? [] : ['Co-Op', 'Indie', 'Backlog'].map((n) => h('button', {
       class: 'chip-btn', type: 'button', text: `+ ${n}`,
-      onclick: async () => { const r = await api.createTag(n); if (r.ok) { await api.setGameTag(g.id, r.tag.id, true); await refresh(true); } },
+      onclick: async () => { const r = await api.createTag(n); if (r.ok) { await api.setGameTag(g.id, r.tag.id, true); await refresh(false); } },
     }));
     return h('div', { style: 'margin-top:22px' },
       h('h3', { text: 'Tags' }), h('div', { style: 'height:10px' }),
@@ -353,9 +389,15 @@
         : [h('div', { class: 'w-big', text: `${left.toFixed(1)} h` }), h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, (hours / b.hours) * 100)}%` })), h('div', { class: 'card-sub', style: 'margin-top:6px', text: `until the ${b.name} border` })];
     return h('section', { class: 'panel widget' }, h('h3', { text: 'Hours until border' }), body, removable ? removeX(widget) : null);
   }
-  const removeX = (w) => h('button', { class: 'w-x', type: 'button', 'aria-label': 'Remove widget', onclick: async () => { await api.removeWidget(w.id); await refresh(true); } }, icon('x'));
+  const removeX = (w) => h('button', { class: 'w-x', type: 'button', 'aria-label': 'Remove widget', onclick: async () => { state.widgets = await api.removeWidget(w.id); render(false); } }, icon('x'));
   function widgetCard(w) {
     if (w.type === 'border-hours') return borderWidget(w, true);
+    if (['image', 'gif', 'video'].includes(w.type)) {
+      const box = h('div', { class: 'w-media' });
+      box.style.aspectRatio = `${w.width || 16} / ${w.height || 9}`;
+      box.append(w.type === 'video' ? videoEl(w.url, null) : h('img', { src: w.url, alt: '' }));
+      return h('section', { class: 'panel widget media-widget' }, box, removeX(w));
+    }
     const g = state.games.find((x) => x.id === w.gameId);
     return h('section', { class: 'panel widget' }, h('h3', { text: 'Total time' }),
       g ? h('div', { class: 'w-game' }, artBox(g, ['header', 'hero']), h('div', {}, h('div', { class: 'card-title', text: g.title }), h('div', { class: 'w-big' }, liveText(g, 'full'))))
@@ -366,34 +408,43 @@
     const mine = state.widgets.filter((w) => w.page === pageName);
     return h('div', {},
       h('div', { class: 'section-head' }, h('h3', { text: 'Your widgets' }), button('Add widget', 'ghost small', () => showAddWidget(pageName), 'plus')),
-      mine.length ? h('div', { class: 'widgets' }, mine.map(widgetCard)) : h('p', { class: 'sub', style: 'margin-bottom:20px', text: 'Add a widget to keep an eye on a game or on your next border.' }));
+      mine.length ? h('div', { class: 'widgets' }, mine.map(widgetCard)) : h('p', { class: 'sub', style: 'margin-bottom:20px', text: 'Add a widget to keep an eye on a game, or add your own picture, GIF or video.' }));
   }
   function showAddWidget(pageName) {
     let type = state.games.length ? 'game-time' : 'border-hours';
+    let gameValue = state.games[0]?.id;
+    let borderValue = 'next';
     modal((close) => {
-      const gameSel = h('select', { class: 'input', 'aria-label': 'Game' }, state.games.map((g) => h('option', { value: g.id, text: g.title })));
-      const borderSel = h('select', { class: 'input', 'aria-label': 'Border' }, [h('option', { value: 'next', text: 'Next border to unlock' }), ...state.borders.filter((b) => b.hours > 0).map((b) => h('option', { value: b.id, text: `${b.name} (${b.hours} h)` }))]);
-      const gameBox = h('div', {}, gameSel);
-      const borderBox = h('div', {}, borderSel);
-      const pickGame = h('button', { class: 'pick', type: 'button', disabled: !state.games.length, onclick: () => set('game-time') }, h('b', { text: 'Total time on a game' }), h('small', { text: 'Shows how long you have played a game of your choice.' }));
-      const pickBorder = h('button', { class: 'pick', type: 'button', onclick: () => set('border-hours') }, h('b', { text: 'Hours until a profile picture border' }), h('small', { text: 'Shows how many hours you still need to unlock a border.' }));
+      const gameBox = h('div', {}, window.UI.dropdown({ value: gameValue, label: 'Game', options: state.games.map((g) => [g.id, g.title]), onChange: (v) => { gameValue = v; } }));
+      const borderBox = h('div', {}, window.UI.dropdown({ value: 'next', label: 'Border', options: [['next', 'Next border to unlock'], ...state.borders.filter((b) => b.hours > 0).map((b) => [b.id, `${b.name} (${b.hours} h)`])], onChange: (v) => { borderValue = v; } }));
+      const defs = [
+        ['game-time', 'Total time on a game', 'Shows how long you have played a game of your choice.'],
+        ['border-hours', 'Hours until a profile picture border', 'Shows how many hours you still need to unlock a border.'],
+        ['image', 'Image', 'Show a picture of your own.'],
+        ['gif', 'GIF', 'Show a GIF of your own (10 seconds at most).'],
+        ['video', 'Video', 'Show a video of your own (10 seconds at most).'],
+      ];
+      const picks = defs.map(([id, title, sub]) => h('button', { class: 'pick', type: 'button', disabled: id === 'game-time' && !state.games.length, onclick: () => set(id) }, h('b', { text: title }), h('small', { text: sub })));
+      const addBtn = button('Add widget', 'light', () => add());
       function set(t) {
         type = t;
-        pickGame.classList.toggle('on', t === 'game-time');
-        pickBorder.classList.toggle('on', t === 'border-hours');
+        picks.forEach((b, i) => b.classList.toggle('on', defs[i][0] === t));
         gameBox.hidden = t !== 'game-time';
         borderBox.hidden = t !== 'border-hours';
+        addBtn.lastChild.textContent = ['image', 'gif', 'video'].includes(t) ? 'Choose file…' : 'Add widget';
       }
       set(type);
-      const add = async () => {
-        const r = await api.addWidget({ page: pageName, type, gameId: gameSel.value, borderId: borderSel.value });
+      async function add() {
+        if (['image', 'gif', 'video'].includes(type)) { close(); startWidgetUpload(pageName, type); return; }
+        const r = await api.addWidget({ page: pageName, type, gameId: gameValue, borderId: borderValue });
         if (!r.ok) return failure(r.error);
+        state.widgets = r.widgets; // show it straight away, without waiting for a rescan
         close();
-        await refresh(true);
-      };
+        render(false);
+      }
       return [h('h3', { text: 'Add a widget' }), h('p', { class: 'sub', text: 'Choose what it shows. You can remove it again later.' }),
-        h('div', { class: 'pick-list' }, pickGame, pickBorder), gameBox, borderBox,
-        h('div', { class: 'modal-actions' }, button('Cancel', 'ghost', close), button('Add widget', 'light', add))];
+        h('div', { class: 'pick-list' }, picks), gameBox, borderBox,
+        h('div', { class: 'modal-actions' }, button('Cancel', 'ghost', close), addBtn)];
     }, { cls: 'small' });
   }
 
@@ -477,11 +528,11 @@
     const list = heroList();
     if (list.length) root.append(heroStage(list));
 
-    const recent = byRecent(g).slice(0, 3);
+    const recent = byRecent(g).slice(0, 5);
     root.append(
       h('div', { class: 'section-head' }, h('h3', { text: g.some((x) => x.lastPlayed) ? 'Recently played' : 'Your games' }),
         h('button', { class: 'link-btn', type: 'button', onclick: () => go('library') }, 'View library', icon('fwd'))),
-      h('div', { class: 'cards' }, recent.map(card)),
+      h('div', { class: isWideHome() ? 'cards five' : 'cards list' }, recent.map(card)),
       widgetSection('home'));
 
     const active = inProgress();
@@ -517,9 +568,11 @@
     const search = h('input', { type: 'search', placeholder: `Search ${all.length} games`, value: state.query, 'aria-label': 'Search your library' });
     search.addEventListener('input', () => { state.query = search.value; draw(); });
 
-    const sort = h('select', { 'aria-label': 'Sort games' },
-      [['recent', 'Recently played'], ['name', 'Name'], ['played', 'Most played']].map(([v, l]) => h('option', { value: v, text: l, selected: state.sort === v })));
-    sort.addEventListener('change', () => { state.sort = sort.value; draw(); });
+    const sort = window.UI.dropdown({
+      value: state.sort, label: 'Sort games', align: 'right',
+      options: [['recent', 'Recently played'], ['name', 'Name'], ['played', 'Most played']],
+      onChange: (v) => { state.sort = v; draw(); },
+    });
 
     const layoutBtn = (name, label) => h('button', { type: 'button', class: state.layout === name ? 'on' : '', 'aria-label': label, onclick: () => { state.layout = name; render(false); } }, icon(name));
     const tabs = [['all', 'All games'], ['installed', 'Installed'], ['favorites', 'Favorites'], ...state.tags.map((t) => [`tag:${t.id}`, t.name])];
@@ -532,11 +585,14 @@
       h('div', { class: 'tabs', role: 'tablist' },
         tabs.map(([key, label]) => h('button', { class: `tab${state.tab === key ? ' on' : ''}`, type: 'button', role: 'tab', onclick: () => { state.tab = key; render(false); } }, label, h('small', { text: sets[key].length }))),
         h('div', { class: 'tab-actions' },
-          currentTag ? button('Delete tag', 'ghost small', async () => { await api.deleteTag(currentTag.id); state.tab = 'all'; await refresh(true); }, 'trash') : null,
+          currentTag ? button('Delete tag', 'ghost small', async () => {
+            if (!(await confirmDialog({ title: `Delete the tag "${currentTag.name}"?`, text: 'The tag is removed from every game. Your games are not deleted.' }))) return;
+            await api.deleteTag(currentTag.id); state.tab = 'all'; await refresh(false);
+          }, 'trash') : null,
           button('New tag', 'ghost small', () => createTagFlow(), 'tag'))),
       h('div', { class: 'toolbar' },
         h('label', { class: 'field grow' }, icon('search'), search),
-        h('label', { class: 'field' }, h('span', { class: 'card-sub', text: 'Sort by' }), sort),
+        h('div', { class: 'field dd-field' }, h('span', { class: 'card-sub', text: 'Sort by' }), sort),
         h('div', { class: 'seg' }, layoutBtn('grid', 'Grid view'), layoutBtn('list', 'List view'))),
       all.length ? grid : emptyState(),
       h('p', { class: 'card-sub' }, count));
@@ -583,12 +639,62 @@
           h('div', { class: 'kv' }, h('span', { class: 'k', text: 'Installed size' }), h('span', { class: 'big-num', text: g.sizeBytes ? gb(g.sizeBytes) : 'Unknown' })),
           h('div', { class: 'kv' }, h('span', { class: 'k', text: 'Location' }), h('span', { class: 'v', text: (g.installPath || g.launch?.target || `Managed by ${STORES[g.store]}`).replace(/([\\/])/g, '$1\u200b') })),
           d ? h('div', { class: 'kv' }, h('span', { class: 'k', text: `Local disk (${d.label})` }), h('div', { class: 'bar' }, h('i', { style: `width:${Math.round((1 - d.free / d.total) * 100)}%` })), h('span', { class: 'card-sub', text: `${gb(d.free)} free of ${gb(d.total)}` })) : null,
+          h('div', { class: 'kv' }, h('span', { class: 'k', text: 'Updates through' }), h('span', { class: 'v', text: TOOL_LABEL[g.store] || TOOL_LABEL.detected })),
           h('div', { class: 'btn-stack' },
+            canToolUpdate(g) ? button(`Update with ${TOOL_SHORT[g.store]}`, 'ghost small', () => updateGame(g), 'download') : null,
             button('Show in folder', 'ghost small', async () => { const r = await api.revealGame(g.id); if (!r.ok) notify('Could not open the folder', r.error, 'error'); }, 'folder'),
             button(removable ? 'Remove from library' : 'Hide from library', 'ghost small', async () => { await api.hideGame(g.id); await refresh(true); goBack('library'); }, 'trash')))));
   }
 
   /* ---------------- downloads ---------------- */
+
+  function thumb(g) {
+    const a = artBox(g, ['header']);
+    a.style.cssText = 'width:120px;height:56px;border-radius:8px;flex:none';
+    return a;
+  }
+
+  function downloadRow(g, pending = false) {
+    const job = jobOf(g);
+    const open = state.openDl === g.id;
+    const sample = state.dl[g.id];
+    const done = g.downloadDone || job?.done || 0;
+    const total = g.downloadTotal || job?.total || 0;
+    const percent = pct(g);
+    const speed = job?.speed || sample?.speed || 0;
+    const eta = job?.eta || (speed > 0 && total > done ? clock((total - done) / speed) : null);
+    const paused = job?.state === 'paused';
+    const amount = total ? `${gb(done)} of ${gb(total)}` : `${percent}%`;
+    const sub = pending ? `Update available${total ? ` · ${gb(total)}` : ''} · ${STORES[g.store]}`
+      : paused ? `Paused · ${amount}` : `${g.state === 'installing' ? 'Installing' : 'Updating'} · ${amount}`;
+    const toggle = () => { state.openDl = open ? null : g.id; render(false); };
+    const stageRatio = g.stageTotal ? g.stageDone / g.stageTotal : percent / 100;
+    const stat = (k, v) => h('div', {}, k, h('b', { text: v }));
+    const head = h('div', { class: 'strip', role: 'button', tabindex: '0', 'aria-expanded': String(open), onclick: toggle, onkeydown: (e) => e.key === 'Enter' && toggle() },
+      thumb(g),
+      h('div', { class: 'grow' }, h('div', { text: g.title }), h('div', { class: 'card-sub', text: sub }),
+        pending ? null : h('div', { class: 'bar', style: 'margin-top:8px' }, h('i', { style: `width:${percent}%` }))),
+      pending ? button('Update', 'update small', (e) => { e.stopPropagation(); updateGame(g); }, 'download')
+        : [job ? h('button', {
+          class: 'btn small dl-pause', type: 'button',
+          onclick: async (e) => { e.stopPropagation(); const r = await (paused ? api.resumeUpdate : api.pauseUpdate)(g.id); if (!r.ok) failure(r.error); },
+        }, icon(paused ? 'play' : 'pause'), paused ? 'Resume' : 'Pause') : null, h('b', { text: `${percent}%` })]);
+    const detail = !open ? null : h('div', { class: 'dl-detail' },
+      pending
+        ? h('p', { class: 'dl-note', text: `${total ? `The update is ${gb(total)}. ` : ''}It is updated with ${TOOL_LABEL[g.store] || TOOL_LABEL.detected} when you press Update.` })
+        : [
+          h('div', { class: 'dl-line' }, h('span', { text: 'Downloading data' }), h('span', { text: total ? `${gb(done)} / ${gb(total)}` : `${percent}%` })),
+          h('div', { class: 'bar' }, h('i', { style: `width:${total ? Math.min(100, Math.round((done / total) * 100)) : percent}%` })),
+          h('div', { class: 'dl-line' }, h('span', { text: 'Updating files' }), h('span', { text: `${Math.round(stageRatio * 100)}%` })),
+          h('div', { class: 'bar' }, h('i', { style: `width:${Math.round(stageRatio * 100)}%` })),
+          h('div', { class: 'dl-stats' },
+            stat('Speed', speed ? `${(speed / 1e6).toFixed(1)} MB/s` : '-'), stat('Time remaining', eta || '-'),
+            stat('Status', paused ? 'Paused' : job?.state === 'error' ? 'Stopped' : 'Downloading'), stat('Updated with', TOOL_LABEL[g.store] || TOOL_LABEL.detected)),
+          job?.error ? h('div', { class: 'dl-err', text: job.error }) : null,
+          !job ? h('p', { class: 'dl-note', text: 'This update runs inside the store\'s own launcher, so it is paused and resumed there. Updates that Crescent starts can be paused here.' }) : null,
+        ]);
+    return h('div', { class: 'dl-wrap' }, head, detail);
+  }
 
   function thumb(g) {
     const a = artBox(g, ['header']);
@@ -612,54 +718,68 @@
         u.state === 'downloaded' ? button('Reload to update', 'light small', () => api.installUpdate(), 'refresh')
           : u.state === 'available' && !state.settings.autoDownloadUpdates ? button('Download', 'light small', () => api.downloadUpdate()) : null));
     }
-
     if (pending.length) {
       any = true;
-      root.append(h('div', { class: 'section-head' }, h('h3', { text: `Updates available · ${pending.length}` })));
-      root.append(...pending.map((g) => h('div', { class: 'strip' }, thumb(g),
-        h('div', { class: 'grow' }, h('div', { text: g.title }), h('div', { class: 'card-sub', text: `Update available · ${STORES[g.store]}` })),
-        button('Update', 'update small', () => updateGame(g), 'download'))));
+      root.append(h('div', { class: 'section-head' }, h('h3', { text: `Updates available · ${pending.length}` })), ...pending.map((g) => downloadRow(g, true)));
     }
-
     if (active.length) {
       any = true;
-      root.append(h('div', { class: 'section-head' }, h('h3', { text: 'In progress' })));
-      root.append(...active.map((g) => h('div', { class: 'strip' }, thumb(g),
-        h('div', { class: 'grow' }, h('div', { text: g.title }),
-          h('div', { class: 'card-sub', text: `${g.state === 'installing' ? 'Installing' : 'Update'} · ${gb(g.downloadDone || 0)} of ${gb(g.downloadTotal || 0)}` }),
-          h('div', { class: 'bar', style: 'margin-top:8px' }, h('i', { style: `width:${pct(g)}%` }))),
-        h('b', { text: `${pct(g)}%` }))));
+      root.append(h('div', { class: 'section-head' }, h('h3', { text: 'In progress' })), ...active.map((g) => downloadRow(g)));
     }
-
     if (!any) root.append(h('section', { class: 'empty', style: 'padding-top:10px' }, h('h2', { text: 'Everything is up to date' }), h('p', { text: 'Games that need an update show up here, and you choose when to update them.' })));
 
     if (state.disk) {
       const d = state.disk;
-      root.append(h('div', { class: 'strip' }, icon('disk'), h('div', { class: 'grow' }, h('div', { text: `Local disk (${d.label})` }), h('div', { class: 'card-sub', text: `${gb(d.free)} free of ${gb(d.total)}` })), h('div', { style: 'width:240px' }, h('div', { class: 'bar' }, h('i', { style: `width:${Math.round((1 - d.free / d.total) * 100)}%` })))));
+      root.append(h('div', { class: 'strip', style: 'margin-top:14px' }, icon('disk'), h('div', { class: 'grow' }, h('div', { text: `Local disk (${d.label})` }), h('div', { class: 'card-sub', text: `${gb(d.free)} free of ${gb(d.total)}` })), h('div', { style: 'width:240px' }, h('div', { class: 'bar' }, h('i', { style: `width:${Math.round((1 - d.free / d.total) * 100)}%` })))));
     }
-    state.pollTimer = setInterval(() => refresh(true), 4000);
+    state.pollTimer = setInterval(() => refresh(false), 4000);
     return root;
   }
 
   /* ---------------- account ---------------- */
 
-  function videoEl(url) {
+  // Zoom and position chosen in the editor. It is applied when the picture is shown, so the original file is never changed.
+  function applyEdit(el, edit) {
+    const e = edit || {};
+    const x = (e.x ?? 0.5) * 100;
+    const y = (e.y ?? 0.5) * 100;
+    const zoom = e.zoom || 1;
+    el.style.objectFit = 'cover';
+    el.style.objectPosition = `${x}% ${y}%`;
+    el.style.transformOrigin = `${x}% ${y}%`;
+    el.style.transform = zoom > 1 ? `scale(${zoom})` : '';
+  }
+
+  // `edit` is read while the video plays, so the editor can change the start and end live.
+  function videoEl(url, edit) {
     const v = h('video', { src: url, loop: true, playsinline: true, preload: 'auto', autoplay: true });
     v.muted = true;
     v.disablePictureInPicture = true;
     let retried = false;
-    v.addEventListener('canplay', () => { if (v.paused) v.play().catch(() => {}); });
+    const begin = () => (edit?.start > 0 ? edit.start : 0);
+    v.addEventListener('loadedmetadata', () => { if (begin() > 0) v.currentTime = begin(); });
+    v.addEventListener('timeupdate', () => {
+      if (edit?.end && v.currentTime >= edit.end) v.currentTime = begin();
+      else if (begin() > 0 && v.currentTime < begin() - 0.3) v.currentTime = begin();
+    });
+    v.addEventListener('canplay', () => { if (v.paused && !state.afk) v.play()?.catch(() => {}); });
     v.addEventListener('error', () => { if (!retried) { retried = true; setTimeout(() => v.load(), 400); } });
     return v;
+  }
+
+  function mediaEl(url, type, edit) {
+    const el = type === 'video' ? videoEl(url, edit) : h('img', { src: url, alt: '' });
+    applyEdit(el, edit);
+    return el;
   }
 
   // The same banner element is reused on every redraw (a video would otherwise restart each time).
   function bannerBox() {
     const b = state.profile.banner;
-    const key = b ? b.url : '';
+    const key = `${b ? b.url : ''}|${JSON.stringify(state.profile.bannerEdit || null)}`;
     if (!state.bannerCache || state.bannerCache.key !== key) {
       const el = h('div', { class: 'banner' });
-      if (b) el.append(b.type === 'video' ? videoEl(b.url) : h('img', { src: b.url, alt: '' }));
+      if (b) el.append(mediaEl(b.url, b.type, state.profile.bannerEdit));
       state.bannerCache = { key, el };
     }
     const el = state.bannerCache.el;
@@ -667,15 +787,106 @@
     const glow = state.profile.glow;
     el.style.boxShadow = glow?.on ? `0 0 28px 4px ${glow.color}, 0 0 0 1px ${glow.color}` : '';
     const v = el.querySelector('video');
-    if (v) setTimeout(() => v.play().catch(() => {}), 0); // a video pauses when it leaves the page; carry on where it was
+    if (v && !state.afk) setTimeout(() => v.play()?.catch(() => {}), 0); // a video pauses when it leaves the page; carry on where it was
     return el;
   }
 
   function avatarEl(cls = 'avatar') {
+    const p = state.profile;
     const a = h('span', { class: cls + borderClass() });
-    if (state.profile.avatarUrl) a.append(h('img', { src: state.profile.avatarUrl, alt: '' }));
-    else a.textContent = state.profile.name[0]?.toUpperCase() || '?';
+    if (p.avatarUrl) {
+      const key = `${p.avatarUrl}|${JSON.stringify(p.avatarEdit || null)}`;
+      if (!state.avatarCache || state.avatarCache.key !== key) state.avatarCache = { key, el: mediaEl(p.avatarUrl, p.avatarType, p.avatarEdit) };
+      a.append(state.avatarCache.el);
+      const v = state.avatarCache.el.tagName === 'VIDEO' ? state.avatarCache.el : null;
+      if (v && !state.afk) setTimeout(() => v.play()?.catch(() => {}), 0);
+    } else a.textContent = p.name[0]?.toUpperCase() || '?';
     return a;
+  }
+
+  /* ---- the editor: zoom, position and (for videos) start and end ---- */
+  function openEditor({ kind, url, type, width, height, duration, edit: initial }) {
+    return new Promise((resolve) => {
+      const edit = { zoom: 1, x: 0.5, y: 0.5, start: 0, end: null, ...(initial || {}) };
+      let saved = false;
+      let length = duration || 0;
+      const isVideo = type === 'video';
+      const titles = { avatar: 'Edit your profile picture', banner: 'Edit your banner', mini: 'Edit your mini profile banner' };
+      const subs = {
+        avatar: 'Move and zoom it so it looks right in the circle.',
+        banner: 'Move and zoom it to choose what shows in your banner.',
+        mini: 'This is the strip behind your name in the bottom left. Choose what shows there.',
+      };
+      modal((close) => {
+        const preview = h('div', { class: `editor-preview ${kind}` });
+        preview.style.aspectRatio = kind === 'avatar' ? '1 / 1' : kind === 'mini' ? '176 / 54' : `${width || 16} / ${height || 9}`;
+        const media = mediaEl(url, type, edit);
+        preview.append(media);
+        const rows = [];
+        const slider = (label, min, max, step, get, set, fmt) => {
+          const input = h('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(get()), 'aria-label': label });
+          const out = h('output', { text: fmt(get()) });
+          const row = { input, out, get, fmt };
+          rows.push(row);
+          input.addEventListener('input', () => { set(Number(input.value)); out.textContent = fmt(get()); applyEdit(media, edit); });
+          return h('div', { class: 'ed-row' }, h('label', { text: label }), input, out);
+        };
+        const sync = () => rows.forEach((r) => { r.input.value = String(r.get()); r.out.textContent = r.fmt(r.get()); });
+        const secs = (v) => `${Number(v).toFixed(1)} s`;
+        const controls = [
+          slider('Zoom', 1, 3, 0.01, () => edit.zoom, (v) => { edit.zoom = v; }, (v) => `${v.toFixed(2)}x`),
+          slider('Left / right', 0, 100, 1, () => Math.round(edit.x * 100), (v) => { edit.x = v / 100; }, (v) => `${v}%`),
+          slider('Up / down', 0, 100, 1, () => Math.round(edit.y * 100), (v) => { edit.y = v / 100; }, (v) => `${v}%`),
+        ];
+        if (isVideo) {
+          controls.push(
+            slider('Start', 0, length || 10, 0.1, () => edit.start, (v) => { edit.start = Math.min(v, (edit.end ?? length) - 0.5); }, secs),
+            slider('End', 0, length || 10, 0.1, () => edit.end ?? length, (v) => { edit.end = v >= length - 0.05 ? null : Math.max(v, edit.start + 0.5); }, secs));
+          media.addEventListener('loadedmetadata', () => {
+            length = media.duration;
+            rows.slice(-2).forEach((r) => { r.input.max = String(length); });
+            sync();
+          });
+        }
+        // drag the picture to move it
+        preview.addEventListener('pointerdown', (e) => { preview.setPointerCapture(e.pointerId); preview.classList.add('drag'); });
+        preview.addEventListener('pointerup', () => preview.classList.remove('drag'));
+        preview.addEventListener('pointermove', (e) => {
+          if (!preview.classList.contains('drag')) return;
+          const r = preview.getBoundingClientRect();
+          const k = Math.max(1, edit.zoom);
+          edit.x = Math.min(1, Math.max(0, edit.x - e.movementX / r.width / k));
+          edit.y = Math.min(1, Math.max(0, edit.y - e.movementY / r.height / k));
+          applyEdit(media, edit);
+          sync();
+        });
+        const reset = () => { Object.assign(edit, { zoom: 1, x: 0.5, y: 0.5, start: 0, end: null }); applyEdit(media, edit); sync(); };
+        return [
+          h('h3', { text: titles[kind] }), h('p', { class: 'sub', text: subs[kind] }),
+          h('div', { class: 'editor-stage' }, preview), controls,
+          isVideo ? h('p', { class: 'card-sub', style: 'margin-top:6px', text: 'The part between Start and End plays on a loop.' }) : null,
+          h('div', { class: 'modal-actions' }, button('Reset', 'ghost', reset), button('Cancel', 'ghost', close),
+            button('Save', 'light', () => { saved = true; resolve({ zoom: edit.zoom, x: edit.x, y: edit.y, start: edit.start, end: edit.end }); close(); })),
+        ];
+      }, { cls: 'editor', onClose: () => { if (!saved) resolve(null); } });
+    });
+  }
+
+  // Edit a picture, GIF or video that is already uploaded (also the strip in the bottom left)
+  async function editExisting(kind) {
+    const p = state.profile;
+    const src = kind === 'avatar' ? p.avatarUrl : p.banner?.url;
+    if (!src) return notify('Nothing to edit yet', kind === 'avatar' ? 'Upload a profile picture first.' : 'Upload a banner first.');
+    const edit = await openEditor({
+      kind, url: src, type: kind === 'avatar' ? p.avatarType : p.banner.type,
+      width: kind === 'avatar' ? 1 : p.banner.width, height: kind === 'avatar' ? 1 : p.banner.height,
+      edit: kind === 'avatar' ? p.avatarEdit : kind === 'mini' ? (p.miniEdit || p.bannerEdit) : p.bannerEdit,
+    });
+    if (!edit) return;
+    state.profile = await api.setEdit(kind, edit);
+    state.bannerCache = null; state.avatarCache = null; state.miniSig = '';
+    chrome();
+    render(false);
   }
 
   function themePanel() {
@@ -697,11 +908,23 @@
     const looks = [['default', 'Default', 'Classic dark'], ['glass', 'Liquid Glass', 'Frosted and shiny'], ['cartoon', 'Cartoony', 'Bold and playful']];
     const uiCards = h('div', { class: 'ui-grid' }, looks.map(([id, name, sub]) => h('button', {
       class: `ui-card${state.profile.uiTheme === id ? ' on' : ''}`, type: 'button',
-      onclick: async () => { state.profile = await api.setUiTheme(id); applyLook(); render(false); },
+      onclick: async () => {
+        state.profile = await api.setUiTheme(id);
+        applyLook();
+        uiCards.querySelectorAll('.ui-card').forEach((c, i) => c.classList.toggle('on', looks[i][0] === id));
+      },
     }, h('div', { class: `ui-prev ${id}` }), h('b', { text: name }), h('small', { text: sub }))));
     return h('section', { class: 'panel' },
       h('h3', { text: 'Interface style' }), uiCards,
       h('h3', {}, 'Wallpaper', cur.type !== 'none' ? button('Remove wallpaper', 'ghost small', async () => { state.profile = await api.setTheme('none'); applyTheme(); render(false); }) : null),
+      cur.type !== 'none'
+        ? h('div', { class: 'dim-row' }, h('span', { class: 'card-sub', text: 'Wallpaper visible' }), (() => {
+          const dim = h('input', { type: 'range', min: '0', max: '100', step: '1', value: String(state.profile.wallpaperDim ?? 50), 'aria-label': 'Wallpaper darkening' });
+          dim.addEventListener('input', () => document.documentElement.style.setProperty('--wall-dim', String((Number(dim.value) / 100) * 0.95)));
+          dim.addEventListener('change', async () => { state.profile = await api.setDim(Number(dim.value)); });
+          return dim;
+        })(), h('span', { class: 'card-sub', text: 'Barely visible' }))
+        : h('p', { class: 'sub', style: 'margin-bottom:14px', text: 'Pick a wallpaper below, then you can set how dark it is.' }),
       h('div', { class: 'tabs themes-tabs' },
         [['animated', 'Animated'], ['still', 'Still pictures']].map(([k, l]) => h('button', { class: `tab${tab === k ? ' on' : ''}`, type: 'button', onclick: () => { state.themeTab = k; render(false); } }, l))),
       h('div', { class: 'theme-grid' }, cards));
@@ -749,7 +972,10 @@
     accentColor.addEventListener('change', () => setAccent('custom', accentColor.value));
     const GLOWS = ['#6c8cff', '#4fe3b0', '#ff6fae', '#ffcf5a', '#ff5a4d', '#c58bff'];
     const ACCENTS = ['#f1f1f3', '#6c8cff', '#4fe3b0', '#ff6fae', '#ffcf5a', '#ff5a4d', '#c58bff', '#4fe3ff'];
-    return h('section', { class: 'panel' }, h('h3', { text: 'Banner glow' }),
+    return h('section', { class: 'panel' },
+      h('h3', { text: 'Edit your pictures' }),
+      h('div', { class: 'btn-stack', style: 'margin-bottom:18px' }, button('Edit picture', 'ghost small', () => editExisting('avatar'), 'edit'), button('Edit banner', 'ghost small', () => editExisting('banner'), 'edit'), button('Edit mini profile', 'ghost small', () => editExisting('mini'), 'edit')),
+      h('h3', { text: 'Banner glow' }),
       h('div', { class: 'row-inline', style: 'margin-bottom:12px' }, switchEl(glow.on, async (on) => { state.profile = await api.setGlow(on, glow.color); render(false); }, 'Banner glow'), h('span', { class: 'sub', text: glow.on ? 'The glow is on' : 'Add a glow around your banner' }), glowColor),
       colorSwatches(GLOWS, glow.color, async (c) => { state.profile = await api.setGlow(true, c); render(false); }),
       h('h3', { style: 'margin-top:6px', text: 'Accent colour' }),
@@ -768,7 +994,8 @@
       h('div', { class: 'status-opts' }, STATUS_PRESETS.map((p) => h('button', {
         class: `chip-btn${cur.preset === p.id ? ' on' : ''}`, type: 'button', onclick: () => save(p.id, cur.message),
       }, h('i', { class: `st-dot st-${p.id}` }), p.label))),
-      h('div', { class: 'row-inline' }, msg, button('Save', 'light small', () => save(cur.preset, msg.value))));
+      h('div', { class: 'row-inline' }, msg, button('Save', 'light small', () => save(cur.preset, msg.value))),
+      h('p', { class: 'card-sub', style: 'margin-top:10px', text: 'In-Game and AFK are set automatically. Offline shows when Crescent is closed.' }));
   }
 
   function pageAccount() {
@@ -787,7 +1014,7 @@
     const st = statusInfo();
 
     return h('div', {},
-      h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'Your account' }), h('p', { class: 'sub', text: 'Your identity, inside and outside the game.' }))),
+      h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'Your account' }), h('p', { class: 'sub', text: 'Your identity in the launcher.' }))),
       h('section', { class: 'profile v2' },
         bannerBox(),
         h('div', { class: 'profile-bar' },
@@ -833,6 +1060,14 @@
     const seg = (key, options) => h('div', { class: 'seg inline' }, options.map(([v, l]) =>
       h('button', { type: 'button', class: state.settings[key] === v ? 'on' : '', text: l, onclick: async () => { state.settings = await api.setSetting(key, v); render(false); } })));
     const group = (title, ...rows) => h('section', { class: 'set-group' }, h('h3', { text: title }), h('div', { class: 'set-card' }, rows));
+    const steamInput = h('input', { class: 'input short', value: state.settings.steamUsername || '', placeholder: 'Steam username', maxlength: '64', 'aria-label': 'Steam username' });
+    const saveSteam = async () => { state.settings = await api.setSetting('steamUsername', steamInput.value.trim()); notify('Steam username saved', 'SteamCMD will sign in with it.'); };
+    const signInTool = async (store) => {
+      if (store === 'steam') await saveSteam();
+      const r = await api.signInTool(store);
+      if (!r.ok) return failure(r.error);
+      notify('Sign-in window opened', r.message);
+    };
 
     return h('div', {},
       h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'Settings' }), h('p', { class: 'sub', text: 'Make Crescent work the way you like.' }))),
@@ -845,7 +1080,14 @@
       group('Performance',
         row('When a game starts', 'Keep Crescent open, hide it in the system tray, or minimize it to the taskbar to save resources.', seg('onGameStart', [['keep', 'Keep open'], ['tray', 'System tray'], ['taskbar', 'Taskbar']])),
         row('Bring Crescent back when the game closes', 'Only when Crescent was hidden or minimized because a game started.', toggle('restoreAfterGame')),
-        row('Performance overlay', 'A small overlay with CPU, GPU and RAM while a game runs. Shows FPS when PresentMon is in the tools folder. Works with windowed and borderless games.', toggle('overlayEnabled'))),
+        row('Performance overlay', 'A small overlay with CPU, GPU and RAM while a game runs. Shows FPS when PresentMon is in the tools folder. Works with windowed and borderless games.', toggle('overlayEnabled')),
+        row('AFK Mode', 'When Crescent is minimized, not in front, not used for a while, or a game is starting or running, it stops moving and hides everything so your PC can focus on the game.', toggle('afkMode')),
+        row('Go to AFK Mode after', 'How long Crescent can sit unused on the desktop before it sleeps.', window.UI.dropdown({
+          value: state.settings.afkMinutes ?? 5, label: 'AFK after', align: 'right',
+          options: [[2, '2 minutes'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes']],
+          onChange: async (v) => { state.settings = await api.setSetting('afkMinutes', v); },
+        })),
+        row('Compatibility mode', 'Turns off graphics acceleration. Try this if you see flickering bars while scrolling. Restart Crescent to apply.', toggle('compatibilityMode'))),
       group('Games',
         row('Look for games automatically', 'Checks your game launchers when Crescent starts and when you come back to it.', toggle('autoScan')),
         row('Search every drive', 'Also looks through your drives for games that no launcher reported. Runs in the background.', toggle('deepScan')),
@@ -853,6 +1095,11 @@
         row('Scan now', 'Checks all supported game launchers right away.', button('Scan now', 'ghost small', rescan, 'refresh')),
         row('Search every drive now', 'This can take a few minutes. You can keep using Crescent.', button('Start search', 'ghost small', () => { api.deepScan(); notify('Searching your drives', 'Crescent looks for games in the background. New games appear in your library.'); }, 'search')),
         row('Hidden games', 'Show the games you hid from your library again.', button('Show all', 'ghost small', async () => { await api.unhideAll(); await refresh(true); notify('Hidden games are back', 'They are in your library again.'); }))),
+      group('Game updating',
+        row('Steam username', 'SteamCMD signs in with this account to update Steam games. Crescent never sees your password.', h('div', { class: 'row-inline' }, steamInput, button('Save', 'ghost small', saveSteam))),
+        row('Sign in to SteamCMD', 'Opens a SteamCMD window where you sign in once. SteamCMD is downloaded automatically.', button('Sign in', 'ghost small', () => signInTool('steam'))),
+        row('Sign in to Epic Games (Legendary)', 'Opens a Legendary window where you sign in to Epic once. Legendary is downloaded automatically.', button('Sign in', 'ghost small', () => signInTool('epic'))),
+        row('Which tool updates what', 'Steam: SteamCMD. Epic Games: Legendary. EA app and Ubisoft Connect: their URI protocol handlers. Battle.net: its client protocol. Xbox and Microsoft Store: PowerShell. Riot and Rockstar: their launcher command line. Games found on this PC: the local executable.', null)),
       group('Updates',
         row('Check for launcher updates', 'Looks for a new version when Crescent starts and every few hours.', toggle('autoCheckUpdates')),
         row('Download updates automatically', 'When off, a Download update button appears instead.', toggle('autoDownloadUpdates')),
@@ -860,7 +1107,9 @@
         row('Game update messages', 'Shows a message in the bell when a game needs an update.', toggle('notifyGameUpdates')),
         row('Check now', 'Looks for a launcher update right away.', button('Check for updates', 'ghost small', async () => {
           const r = await api.checkForUpdates();
-          if (!r.ok) notify('Could not check for updates', r.error, 'error'); else notify('Checking for updates', 'If there is a new version, a green button appears at the top.');
+          if (!r.ok) notify('Could not check for updates', r.error, 'error');
+          else if (r.upToDate) popup({ kind: 'success', title: 'Crescent is up to date', text: `You have the newest version (${r.version}).` });
+          else popup({ kind: 'info', title: 'Update found', text: `Crescent ${r.version} is available. A green button appears at the top when it is ready.` });
         }, 'refresh')),
         row('Update logs', 'Read what changed in recent versions.', button('View update logs', 'ghost small', () => showWhatsNew(true)))),
       group('Data',
@@ -892,46 +1141,99 @@
     });
   }
 
+  // Length of a GIF: the delays of all its frames added together.
+  async function gifSeconds(file) {
+    const b = new Uint8Array(await file.arrayBuffer());
+    let i = 13;
+    if (b[10] & 0x80) i += 3 * (1 << ((b[10] & 7) + 1));
+    let total = 0;
+    const skipBlocks = () => { while (i < b.length && b[i] !== 0) i += b[i] + 1; i++; };
+    while (i < b.length) {
+      if (b[i] === 0x3b) break;
+      if (b[i] === 0x21) {
+        if (b[i + 1] === 0xf9) total += (b[i + 4] | (b[i + 5] << 8)) / 100;
+        i += 2;
+        skipBlocks();
+      } else if (b[i] === 0x2c) {
+        const flags = b[i + 9];
+        i += 10;
+        if (flags & 0x80) i += 3 * (1 << ((flags & 7) + 1));
+        i++;
+        skipBlocks();
+      } else break;
+    }
+    return total;
+  }
+
   async function inspect(kind, file) {
     const ext = (file.name.split('.').pop() || '').toLowerCase();
-    const isVideo = file.type.startsWith('video/');
-    const imageTypes = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
-    if (kind === 'avatar') {
-      if (!imageTypes.includes(ext)) throw invalid('A profile picture must be a PNG, JPG, WEBP or GIF image.');
-      if (file.size > 10 * 1024 * 1024) throw invalid('A profile picture can be at most 10 MB.');
-    } else {
-      if (!imageTypes.includes(ext) && !['mp4', 'webm'].includes(ext)) throw invalid('A banner must be an image or an MP4 or WEBM video.');
-      if (file.size > 100 * 1024 * 1024) throw invalid('A banner can be at most 100 MB.');
-    }
+    if (!['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'webm'].includes(ext)) throw invalid('Use a PNG, JPG, WEBP or GIF picture, or an MP4 or WEBM video.');
+    if (file.size > 100 * 1024 * 1024) throw invalid('That file is bigger than 100 MB.');
     const info = await readMedia(file);
-    if (kind === 'avatar') {
-      if (info.width < 128 || info.height < 128) throw invalid(`A profile picture must be at least 128 by 128 pixels. This one is ${info.width} by ${info.height}.`);
-    } else {
-      if (info.width < 1280 || info.width > 3840 || info.height < 400 || info.height > 700) throw invalid(`A banner must be 1280 to 3840 pixels wide and 400 to 700 pixels tall. This one is ${info.width} by ${info.height}.`);
-      if (isVideo && info.duration > 10.05) throw invalid(`A banner video can be at most 10 seconds long. This one is ${info.duration.toFixed(1)} seconds.`);
+    if (ext === 'gif') info.duration = await gifSeconds(file);
+    if (info.duration > 10.05) throw invalid(`GIFs and videos can be at most 10 seconds long. This one is ${info.duration.toFixed(1)} seconds.`);
+    if (kind === 'banner') {
+      const { width: bw, height: bh } = info;
+      if (bw <= bh) throw invalid(`A banner has to be wider than it is tall. This one is ${bw} by ${bh}.`);
+      if (bw > 1280 || bh > 1000) throw invalid(`A banner can be 1280 by 1000 pixels at most. This one is ${bw} by ${bh}.`);
+      if (bw < 320) throw invalid(`A banner must be at least 320 pixels wide. This one is ${bw} by ${bh}.`);
     }
     return { info, ext };
   }
 
+  const PICTURE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm';
+
   async function startUpload(kind) {
     const file = await uploadModal(kind === 'avatar'
-      ? { noun: 'your picture.', accept: 'image/png,image/jpeg,image/webp,image/gif', hint: 'PNG, JPG, WEBP or GIF, at least 128 by 128 pixels' }
-      : { noun: 'your banner.', accept: 'image/*,video/mp4,video/webm', hint: '1280 to 3840 pixels wide, 400 to 700 tall. Video: 10 seconds at most' });
-    if (file) runUpload(kind, file);
+      ? { noun: 'your picture.', accept: PICTURE_ACCEPT, hint: 'A picture, a GIF or a video. GIFs and videos can be 10 seconds at most.' }
+      : { noun: 'your banner.', accept: PICTURE_ACCEPT, hint: 'Pictures, GIFs and videos up to 1280 by 1000 pixels, wider than they are tall. GIFs and videos: 10 seconds at most.' });
+    if (file) prepareUpload(kind, file);
   }
 
-  async function runUpload(kind, file) {
+  async function startWidgetUpload(pageName, kind) {
+    const rules = {
+      image: { accept: 'image/png,image/jpeg,image/webp', exts: ['png', 'jpg', 'jpeg', 'webp'], noun: 'your picture.', hint: 'A PNG, JPG or WEBP picture' },
+      gif: { accept: 'image/gif', exts: ['gif'], noun: 'your GIF.', hint: 'A GIF of 10 seconds at most' },
+      video: { accept: 'video/mp4,video/webm', exts: ['mp4', 'webm'], noun: 'your video.', hint: 'An MP4 or WEBM video of 10 seconds at most' },
+    }[kind];
+    const file = await uploadModal({ noun: rules.noun, accept: rules.accept, hint: rules.hint });
+    if (!file) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!rules.exts.includes(ext)) return failure(`That is not the right kind of file. ${rules.hint} works here.`, () => startWidgetUpload(pageName, kind));
+    prepareUpload('widget', file, { widgetPage: pageName, widgetType: kind });
+  }
+
+  // Check the file, let the user edit it (profile picture and banner), then upload it.
+  async function prepareUpload(kind, file, extra = {}) {
+    let prepared;
+    try {
+      prepared = await inspect(kind, file);
+    } catch (err) {
+      const p = popup({
+        kind: 'error', title: 'Oops! so sorry', text: err.message,
+        actions: [{ label: 'Retry', onclick: () => { p.close(); if (kind === 'widget') startWidgetUpload(extra.widgetPage, extra.widgetType); else startUpload(kind); } }, { label: 'Cancel', onclick: () => p.close() }],
+      });
+      return;
+    }
+    let edit = null;
+    if (kind === 'avatar' || kind === 'banner') {
+      const url = URL.createObjectURL(file);
+      edit = await openEditor({ kind, url, type: prepared.info.type, width: prepared.info.width, height: prepared.info.height, duration: prepared.info.duration });
+      URL.revokeObjectURL(url);
+      if (!edit) return;
+    }
+    runUpload(kind, file, prepared, edit, extra);
+  }
+
+  async function runUpload(kind, file, prepared, edit, extra = {}) {
     let cancelled = false;
     let session = null;
     const p = popup({
-      kind: 'progress', title: 'Just a second...', text: 'Checking your file…', progress: 0,
+      kind: 'progress', title: 'Just a second...', text: 'Right now, your file is being uploaded. Please wait a moment while we finish your upload.', progress: 0,
       actions: [{ label: 'Cancel', onclick: () => { cancelled = true; if (session) api.mediaAbort(session.id); p.close(); } }],
     });
     try {
-      const { info, ext } = await inspect(kind, file);
-      if (cancelled) return;
-      p.update({ text: 'Right now, your file is being uploaded. Please wait a moment while we finish your upload.' });
-      session = await api.mediaBegin({ kind, ext });
+      session = await api.mediaBegin({ kind, ext: prepared.ext });
       const CHUNK = 1024 * 1024;
       for (let offset = 0; offset < file.size; offset += CHUNK) {
         if (cancelled) return;
@@ -939,10 +1241,18 @@
         p.update({ progress: Math.min(99, ((offset + CHUNK) / file.size) * 100) });
       }
       if (cancelled) return;
-      const res = await api.mediaEnd(session.id, info);
-      state.profile = res.profile;
-      applyTheme();
-      chrome();
+      const res = await api.mediaEnd(session.id, prepared.info, edit);
+      if (kind === 'widget') {
+        const added = await api.addWidget({ page: extra.widgetPage, type: extra.widgetType, file: res.file, width: prepared.info.width, height: prepared.info.height });
+        if (!added.ok) throw new Error(added.error);
+        state.widgets = added.widgets;
+      } else {
+        state.profile = res.profile;
+        state.bannerCache = null; state.avatarCache = null; state.miniSig = '';
+        applyTheme();
+        applyLook();
+        chrome();
+      }
       render(false);
       p.set('success', {
         title: 'Your file was uploaded!', text: 'Your file was successfully uploaded. You can copy the link to your clipboard.',
@@ -951,11 +1261,9 @@
     } catch (err) {
       if (cancelled) return;
       if (session) api.mediaAbort(session.id);
-      const retry = err.validation ? () => startUpload(kind) : () => runUpload(kind, file);
       p.set('error', {
-        title: 'Oops! so sorry',
-        text: err.validation ? err.message : 'Your file could not be uploaded due to an error. Would you want to give it another shot?',
-        actions: [{ label: 'Retry', onclick: () => { p.close(); retry(); } }, { label: 'Cancel', onclick: () => p.close() }],
+        title: 'Oops! so sorry', text: 'Your file could not be uploaded due to an error. Would you want to give it another shot?',
+        actions: [{ label: 'Retry', onclick: () => { p.close(); runUpload(kind, file, prepared, edit, extra); } }, { label: 'Cancel', onclick: () => p.close() }],
       });
     }
   }
@@ -1094,24 +1402,27 @@
       sub.dataset.sig = `${st.id}|${st.label}`;
       sub.replaceChildren(h('i', { class: `st-dot st-${st.id}` }), st.label);
     }
-    const sig = `${p.banner?.url || ''}|${p.avatarUrl || ''}|${p.name}|${p.border}`;
+    const sig = `${p.banner?.url || ''}|${p.avatarUrl || ''}|${p.avatarType}|${p.name}|${p.border}|${JSON.stringify([p.avatarEdit, p.miniEdit])}`;
     if (sig === state.miniSig) return;
     state.miniSig = sig;
     const av = $('#acc-avatar');
     av.className = `avatar${borderClass()}`;
     av.replaceChildren();
-    if (p.avatarUrl) av.append(h('img', { src: p.avatarUrl, alt: '' }));
+    if (p.avatarUrl) av.append(mediaEl(p.avatarUrl, p.avatarType, p.avatarEdit));
     else av.textContent = p.name[0]?.toUpperCase() || '?';
     const bg = $('#acc-bg');
     bg.replaceChildren();
-    if (p.banner) bg.append(p.banner.type === 'video' ? videoEl(p.banner.url) : h('img', { src: p.banner.url, alt: '' }));
+    if (p.banner) bg.append(mediaEl(p.banner.url, p.banner.type, p.miniEdit));
   }
+
+  const tabLabel = () => (state.tab === 'installed' ? 'Installed' : state.tab === 'favorites' ? 'Favorites'
+    : state.tab.startsWith('tag:') ? (state.tags.find((t) => `tag:${t.id}` === state.tab)?.name || 'All games') : 'All games');
 
   function chrome() {
     const route = state.route;
     const game = route.startsWith('game:') ? state.games.find((g) => g.id === route.slice(5)) : null;
     $('#crumb').textContent = route === 'home' ? 'Your launcher. Your universe.'
-      : route === 'library' ? 'Library / All games' : route === 'downloads' ? 'Downloads / Overview'
+      : route === 'library' ? `Library / ${tabLabel()}` : route === 'downloads' ? 'Downloads / Overview'
       : route === 'account' ? 'Account / Profile' : route === 'settings' ? 'Settings' : route === 'milestones' ? 'Milestones' : `Library / ${game ? game.title : 'Game'}`;
     document.querySelectorAll('.side-item[data-route]').forEach((el) => el.classList.toggle('active', el.dataset.route === route || (route.startsWith('game:') && el.dataset.route === 'library')));
     $('#tb-back').disabled = state.pos === 0;
@@ -1123,7 +1434,7 @@
     count.textContent = busy;
     count.classList.add('warn');
 
-    $('#quick').replaceChildren(...byRecent(state.games.filter((g) => g.state === 'installed' || g.state === 'updating')).slice(0, 3).map((g) => {
+    $('#quick').replaceChildren(...byPlayed(state.games.filter((g) => g.state === 'installed' || g.state === 'updating')).slice(0, 5).map((g) => {
       const open = () => go(`game:${g.id}`);
       return h('div', { class: 'quick-item', tabindex: '0', role: 'link', 'aria-label': g.title, onclick: open, onkeydown: (e) => e.key === 'Enter' && open() },
         h('span', { class: 'avatar', text: g.title[0].toUpperCase() }), h('span', { class: 'grow', text: g.title }), roundAction(g, true));
@@ -1149,29 +1460,92 @@
     drawBell();
   }
 
+  // Download speed worked out from how many bytes arrived since the last look
+  function sampleDownloads(games, now) {
+    for (const g of games) {
+      if (g.state !== 'updating' && g.state !== 'installing') { delete state.dl[g.id]; continue; }
+      const bytes = g.downloadDone || 0;
+      const prev = state.dl[g.id];
+      if (!prev) { state.dl[g.id] = { bytes, at: now, speed: 0 }; continue; }
+      if (now - prev.at < 1500) continue;
+      const inst = (bytes - prev.bytes) / ((now - prev.at) / 1000);
+      if (inst >= 0) prev.speed = prev.speed ? prev.speed * 0.6 + inst * 0.4 : inst;
+      prev.bytes = bytes;
+      prev.at = now;
+    }
+  }
+
   async function refresh(force) {
+    if (state.afk) return;
     const res = await api.listGames(!!force);
     const running = new Set(res.running);
     // Play time of a running game changes constantly and is shown by the live counter, so it must not trigger a redraw.
     const stable = res.games.map((g) => (running.has(g.id) ? { ...g, playSeconds: 0 } : g));
-    const snapshot = JSON.stringify([stable, res.profile, res.stores, res.running, res.settings, res.widgets, res.tags, res.gameTags, res.milestones]);
+    const jobs = (res.updateJobs || []).map((j) => ({ id: j.id, state: j.state, error: j.error }));
+    const snapshot = JSON.stringify([stable, res.profile, res.stores, res.running, res.settings, res.widgets, res.tags, res.gameTags, res.milestones, jobs]);
     state.disk = res.disk;
     state.scan = res.scan;
     state.games = res.games;
     state.running = running;
+    state.jobs = res.updateJobs || [];
     state.totalSeconds = res.totalSeconds;
     state.borders = res.borders;
     const now = Date.now();
+    sampleDownloads(res.games, now);
     for (const g of res.games) if (running.has(g.id)) state.liveBase[g.id] = { seconds: g.playSeconds, at: now };
     if (snapshot === state.snapshot) { tickLive(); return; }
     // Don't redraw under the user's cursor while they're typing in the page.
     if (document.activeElement && page.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+    if (document.querySelector('.dd.open')) return; // a menu is open: draw again after it closes
     Object.assign(state, { stores: res.stores, profile: res.profile, settings: res.settings, widgets: res.widgets, tags: res.tags, gameTags: res.gameTags, milestones: res.milestones, snapshot });
     for (const id of res.running) state.launching.delete(id);
     applyTheme();
     applyFriends();
     applyLook();
     render(false);
+  }
+
+  /* ---------------- AFK mode: Crescent sleeps while you play or are away ---------------- */
+
+  const AFK_WITH_GAME_SECONDS = 15;
+  function shouldBeAfk() {
+    if (state.settings.afkMode === false) return false;
+    if (document.hidden || !document.hasFocus()) return true; // minimized, or not the window in front
+    const idle = (Date.now() - state.lastActive) / 1000;
+    const gameActive = state.running.size > 0 || state.launching.size > 0;
+    return idle >= (state.settings.afkMinutes || 5) * 60 || (gameActive && idle >= AFK_WITH_GAME_SECONDS);
+  }
+  function enterAfk() {
+    state.afk = true;
+    document.body.classList.add('afk');
+    clearInterval(state.heroTimer);
+    clearInterval(state.pollTimer);
+    clearInterval(state.idleTimer);
+    document.querySelectorAll('video').forEach((v) => v.pause());
+    api.setAfk(true).catch(() => {});
+  }
+  function leaveAfk() {
+    state.afk = false;
+    state.lastActive = Date.now();
+    document.body.classList.remove('afk');
+    api.setAfk(false).catch(() => {});
+    document.querySelectorAll('video').forEach((v) => v.play()?.catch(() => {}));
+    startIdleTimer();
+    state.snapshot = ''; // draw again with fresh data
+    refresh(false).then(() => render(false)).catch(() => {});
+  }
+  function evaluateAfk() {
+    const want = shouldBeAfk();
+    if (want && !state.afk) enterAfk();
+    else if (!want && state.afk) leaveAfk();
+  }
+  function startIdleTimer() {
+    clearInterval(state.idleTimer);
+    state.idleTimer = setInterval(evaluateAfk, 5000);
+  }
+  function activity() {
+    state.lastActive = Date.now();
+    if (state.afk && document.hasFocus() && !document.hidden) leaveAfk();
   }
 
   /* ---------------- start up ---------------- */
@@ -1209,7 +1583,7 @@
   const setFriendsHidden = async (hidden) => {
     state.settings = await api.setSetting('friendsHidden', hidden);
     applyFriends();
-    if (state.route === 'settings') render(false);
+    if (['settings', 'home'].includes(state.route)) render(false);
   };
   $('#friends-hide').addEventListener('click', () => setFriendsHidden(true));
   $('#friends-show').addEventListener('click', () => setFriendsHidden(false));
@@ -1227,11 +1601,26 @@
   api.onRunning(() => refresh(false).catch(console.error));
   api.onScanProgress((s) => { state.scan = s; chrome(); });
   api.onUpdateStatus(renderUpdate);
+  api.onUpdateJobs((list) => {
+    state.jobs = list;
+    if (state.afk) return;
+    chrome();
+    if (state.route === 'downloads') render(false);
+  });
+  ['pointermove', 'pointerdown', 'keydown', 'wheel'].forEach((ev) => window.addEventListener(ev, activity, { passive: true }));
+  window.addEventListener('blur', evaluateAfk);
+  window.addEventListener('focus', activity);
+  document.addEventListener('visibilitychange', evaluateAfk);
+  let wideNow = isWideHome();
+  window.addEventListener('resize', () => {
+    const w = isWideHome();
+    if (w !== wideNow) { wideNow = w; if (state.route === 'home' && !state.afk) render(false); }
+  });
 
-  setInterval(tickLive, 1000);
+  setInterval(() => { if (!state.afk) tickLive(); }, 1000);
   setInterval(() => {
     const left = $('#sb-left');
-    if (state.scan.active) return;
+    if (state.scan.active || state.afk) return;
     left.classList.add('fade');
     setTimeout(() => { state.tip++; chrome(); left.classList.remove('fade'); }, 380);
   }, 25000);
@@ -1248,6 +1637,7 @@
       applyLook();
       render(true);
     }, 2000);
+    startIdleTimer();
     const logs = await api.getWhatsNew(false);
     if (logs && state.settings.showUpdateLogs) showWhatsNew(false);
     else if (logs) api.ackVersion();

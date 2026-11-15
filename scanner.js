@@ -178,6 +178,7 @@ async function scanSteam() {
         updating: busy ? ((flags & STEAM_RUNNING) !== 0 ? 'running' : 'pending') : null,
         progress: total > 0 ? Math.min(1, done / total) : 0,
         downloadTotal: total, downloadDone: done,
+        stageTotal: num(vdf(text, 'BytesToStage')), stageDone: num(vdf(text, 'BytesStaged')),
       });
     }
   }
@@ -348,6 +349,14 @@ async function scanXbox() {
       const parts = p.InstallLocation.split(/[\\/]/);
       title = /^content$/i.test(parts[parts.length - 1]) ? parts[parts.length - 2] : String(p.Name).split('.').pop();
     }
+    if (/^minecraft launcher$/i.test(title)) {
+      games.push({
+        id: 'minecraft:minecraft-launcher', store: 'minecraft', title, version: '',
+        launch: { type: 'appx', target: `${p.PackageFamilyName}!${appId}` },
+        installPath: p.InstallLocation, sizeBytes: 0, state: 'installed', progress: 0, titleMatch: '^minecraft',
+      });
+      continue;
+    }
     if (NOT_GAME.test(title)) continue;
     games.push({
       id: `xbox:${p.PackageFamilyName}`, store: 'xbox', title, version: '',
@@ -358,6 +367,35 @@ async function scanXbox() {
   return { found: true, games };
 }
 
+/* ---------------- Minecraft launchers (they start Minecraft, so they belong here) ---------------- */
+
+async function scanMinecraft(entries) {
+  if (!IS_WIN) return NONE;
+  const local = process.env.LOCALAPPDATA || '';
+  const pf = [process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean);
+  const defs = [
+    { id: 'minecraft-launcher', title: 'Minecraft Launcher', names: /^minecraft launcher$/i, paths: pf.map((p) => path.join(p, 'Minecraft Launcher', 'MinecraftLauncher.exe')) },
+    { id: 'modrinth', title: 'Modrinth App', names: /^modrinth/i, paths: [path.join(local, 'Modrinth App', 'Modrinth App.exe')] },
+    { id: 'curseforge', title: 'CurseForge', names: /^curseforge/i, paths: [path.join(local, 'Programs', 'CurseForge Windows', 'CurseForge.exe'), path.join(local, 'Programs', 'curseforge', 'CurseForge.exe')] },
+  ];
+  const games = [];
+  for (const def of defs) {
+    let exe = def.paths.find((p) => p && fs.existsSync(p));
+    if (!exe) {
+      const entry = entries.find((e) => def.names.test(e.name) && e.dir && fs.existsSync(e.dir));
+      if (entry) exe = await findMainExe(entry.dir, def.title);
+    }
+    if (!exe) continue;
+    games.push({
+      id: `minecraft:${def.id}`, store: 'minecraft', title: def.title, version: '',
+      launch: { type: 'exe', target: exe, cwd: path.dirname(exe) },
+      installPath: path.dirname(exe), sizeBytes: 0, state: 'installed', progress: 0,
+      titleMatch: '^minecraft', // Minecraft itself opens a window called "Minecraft ..."
+    });
+  }
+  return { found: games.length > 0, games };
+}
+
 /* ---------------- everything together ---------------- */
 
 async function scanAll() {
@@ -366,7 +404,7 @@ async function scanAll() {
   const jobs = {
     steam: scanSteam(), epic: scanEpic(), gog: scanGog(),
     ea: scanEA(entries), ubisoft: scanUbisoft(entries), battlenet: scanBattleNet(entries),
-    xbox: scanXbox(), riot: scanRiot(entries), rockstar: scanRockstar(entries), roblox: scanRoblox(),
+    xbox: scanXbox(), riot: scanRiot(entries), rockstar: scanRockstar(entries), roblox: scanRoblox(), minecraft: scanMinecraft(entries),
   };
   const done = {};
   await Promise.all(Object.entries(jobs).map(async ([k, p]) => (done[k] = await p.catch(empty))));
