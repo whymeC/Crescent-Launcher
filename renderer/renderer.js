@@ -818,7 +818,7 @@
         mini: 'This is the strip behind your name in the bottom left. Choose what shows there.',
       };
       modal((close) => {
-        const preview = h('div', { class: `editor-preview ${kind}` });
+        const preview = h('div', { class: `editor-preview is-${kind}` });
         preview.style.aspectRatio = kind === 'avatar' ? '1 / 1' : kind === 'mini' ? '176 / 54' : `${width || 16} / ${height || 9}`;
         const media = mediaEl(url, type, edit);
         preview.append(media);

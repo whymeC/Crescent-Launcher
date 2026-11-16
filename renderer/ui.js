@@ -188,7 +188,15 @@ window.UI = (() => {
     const setOpen = (open) => {
       root.classList.toggle('open', open);
       btn.setAttribute('aria-expanded', String(open));
-      if (open) (menu.querySelector('.dd-opt.on') || menu.querySelector('.dd-opt'))?.focus();
+      if (!open) return;
+      // use the room that is there: open downwards, or upwards when that is roomier, and scroll when the list is long
+      const r = btn.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 28;
+      const above = r.top - 28;
+      const up = below < 220 && above > below;
+      root.classList.toggle('up', up);
+      menu.style.maxHeight = `${Math.max(120, Math.min(320, up ? above : below))}px`;
+      (menu.querySelector('.dd-opt.on') || menu.querySelector('.dd-opt'))?.focus();
     };
     function draw() {
       val.textContent = (options.find((o) => o[0] === value) || [])[1] ?? '';

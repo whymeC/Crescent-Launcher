@@ -134,5 +134,11 @@
       "Small cover tiles no longer cut their title in half.",
       "A banner or profile picture that is scrolled no longer tears at its edge (turn on Compatibility mode if it still does)."
     ]
+  },
+  "1.0.7": {
+    "bugfixes": [
+      "The profile picture editor now shows a round preview instead of a flat oval.",
+      "Long drop-down menus, such as the list of games when you add a widget, now scroll to the last item and open upwards when there is no room below."
+    ]
   }
 }
