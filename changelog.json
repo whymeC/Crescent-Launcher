@@ -1,0 +1,165 @@
+{
+  "1.0.1": {
+    "bugfixes": [
+      "Games from Steam no longer appear twice in your library.",
+      "Updates that are queued in Steam are labelled \"Update pending\" instead of \"Updating 0%\"."
+    ]
+  },
+  "1.0.2": {
+    "features": [
+      "A new Settings page for the launcher, your games and updates.",
+      "Make your account yours: a profile picture, a banner (picture or a video up to 10 seconds) and an app wallpaper.",
+      "Four animated wallpapers (Night Sky, Aurora Borealis, Milkyway, Singularity) and four still wallpapers.",
+      "Games that need an update now show an Update button and are listed on the Downloads page.",
+      "A Close Game button appears while a game is running.",
+      "Play time is counted in seconds, minutes and hours for every game, including Steam and Epic games.",
+      "Crescent now also looks for games from the EA app, Ubisoft Connect, Battle.net, Xbox app, Microsoft Store, Riot (Valorant and League of Legends), Rockstar and Roblox.",
+      "Crescent searches your drives for installed games that no launcher reported.",
+      "Missing game descriptions and banners are looked up on the internet.",
+      "Pop-ups for uploads and errors, and an upload window with drag and drop.",
+      "A moon phase loading screen while Crescent looks for your games.",
+      "A list of the games you play most on your Account page, shown as a list or as a 2 by 2 grid."
+    ],
+    "reworks": [
+      "The Jump Back In box now rotates through your 4 most played games.",
+      "The update notice moved into a Reload to update button next to the window buttons.",
+      "The bell now shows messages about games that need an update.",
+      "The Friends list can be hidden and shown with a button, with a smooth animation.",
+      "The Crescent logo is now the app icon."
+    ],
+    "optimizations": [
+      "Game descriptions and banners are saved on your PC, so they only load once.",
+      "Searching every drive runs in the background and never blocks the launcher."
+    ],
+    "bugfixes": [
+      "Play time for Steam and Epic games is no longer left at zero."
+    ]
+  },
+  "1.0.3": {
+    "features": [
+      "Games in Quick Launch now show a small play button when you hover over them.",
+      "A setting to turn the smooth Jump Back In transition on or off.",
+      "The bottom left corner now shows kind and encouraging words.",
+      "The mini profile in the bottom left now shows your banner behind your name."
+    ],
+    "reworks": [
+      "The friends list now has separate Hide and Show buttons with new icons. When hidden, the scroll bar sits on the right edge of the launcher and the Show button sits next to it.",
+      "The upload window now matches the launcher's colours.",
+      "The widgets on the Account page now line up in justified rows.",
+      "Jump Back In now fades smoothly from one game to the next.",
+      "The corner of the launcher no longer shows how many games were found."
+    ],
+    "optimizations": [
+      "The play time counter updates without redrawing the page, so the launcher stays calm while you play.",
+      "Banner videos are no longer reloaded every time the page refreshes."
+    ],
+    "bugfixes": [
+      "The name and text on the Account page no longer move or squash together when you upload a profile picture and a banner.",
+      "Profile pictures in the bottom left are now round.",
+      "Banner videos no longer glitch at the start and now play all the way through.",
+      "Banners between 400 and 700 pixels tall (and wider than 1280 pixels) are now accepted.",
+      "The game scanner no longer adds empty folders, texture folders or apps such as Windhawk, Overlay and Epic Online Services to your library.",
+      "Folders such as Content and Win64 are no longer shown as games.",
+      "The play time counter now goes up every second while you play.",
+      "The back button on a game page now names the page you came from.",
+      "Notifications in the bottom right now close by themselves after 5 seconds.",
+      "Updating a Steam game now opens Steam on its Downloads page and starts the update.",
+      "Install paths on the game page no longer break in the middle of a word."
+    ]
+  },
+  "1.0.5": {
+    "features": [
+      "Set a status: Online, In-Game, AFK, Do Not Disturb or Chilling, with an optional message of your own. It shows on your profile and in the bottom left.",
+      "A new Milestones page with an activity feed (for example \"You just hit 50 hours in a game\" and \"Unlocked the Gold Frame achievement\").",
+      "Profile picture borders that unlock as your total play time grows.",
+      "A glowing border around your banner, in a colour of your choice.",
+      "Choose an accent colour, or let Crescent take one from your wallpaper or banner. It tints buttons, highlights and active tabs.",
+      "Tags: create your own tags such as Co-Op, Indie or Backlog and sort your library with them.",
+      "Searching in the title bar now shows the matching games in a drop-down menu.",
+      "Three interface styles: Default, Liquid Glass and Cartoony. Pick one in the Wallpaper widget on the Account page.",
+      "Custom widgets: Total time on a game of your choice, and Hours until a profile picture border. You can add them to Home and Milestones and remove them again.",
+      "Choose what Crescent does when a game starts: keep open, minimize to the system tray, or minimize to the taskbar.",
+      "A lightweight performance overlay with CPU, GPU and RAM while a game runs (FPS too when PresentMon is installed).",
+      "Smooth page transitions. You can turn them off in Settings."
+    ],
+    "reworks": [
+      "The friends list button is now an arrow.",
+      "Settings has a new Performance section."
+    ],
+    "optimizations": [
+      "Typing in the library search keeps the cursor in the box instead of redrawing the whole page."
+    ],
+    "bugfixes": [
+      "The messages menu no longer goes behind the Jump Back In box and the friends list.",
+      "A game found by more than one source, such as Minecraft Dungeons, now appears only once in your library.",
+      "A game without cover art no longer shows its name twice in the Jump Back In box."
+    ]
+  },
+  "1.0.6": {
+    "features": [
+      "Animated profile pictures: use a GIF or a video of 10 seconds at most.",
+      "A profile picture editor, a banner editor and a mini profile editor. Zoom, move and (for videos) choose the start and end before or after you upload.",
+      "Three new widget types: Image, GIF and Video. Upload your own and place it on Home or Milestones.",
+      "A wallpaper darkening slider: left shows the wallpaper fully, right barely shows it.",
+      "AFK Mode: when Crescent is minimized, not in front, not used for a while, or a game is starting or running, it stops moving and shows \"AFK Mode is Active\".",
+      "Pause and Resume for updates that Crescent runs.",
+      "Each store now updates games with its own tool: SteamCMD for Steam, Legendary for Epic Games, URI protocol handlers for the EA app and Ubisoft Connect, the Battle.net client protocol, PowerShell for Xbox and Microsoft Store, command lines for Riot and Rockstar, and the local program for games found on this PC.",
+      "Modrinth, CurseForge and the Minecraft Launcher are now in your library.",
+      "Click a game that is updating to see how far it is: downloaded data, updated files, speed and time remaining.",
+      "A confirmation window before a tag is deleted.",
+      "Compatibility mode in Settings turns off graphics acceleration."
+    ],
+    "reworks": [
+      "Banners can be any picture, GIF or video up to 1280 by 1000 pixels, as long as it is wider than it is tall.",
+      "Your status is now automatic: In-Game: game name while you start or play a game, AFK in AFK Mode, Online otherwise. You can still choose Online, Chilling or Do Not Disturb yourself.",
+      "The Home screen shows 5 games under Jump Back In. They stand in a row when Crescent is maximized with the friends list hidden, and underneath each other otherwise.",
+      "Quick Launch shows your 5 most played games.",
+      "The profile picture on the Account page is bigger. The buttons stay where they were.",
+      "The Account page now says \"Your identity in the launcher.\"",
+      "The Sort by menu in the Library has a new look that matches the launcher.",
+      "Check for updates now tells you when Crescent is up to date.",
+      "The upload window shows the real banner sizes.",
+      "The game page no longer shows build numbers after the store name.",
+      "Nature's Creativity is now called Midnight Eclipse over the Mountains."
+    ],
+    "optimizations": [
+      "In AFK Mode the launcher hides everything, pauses videos and animations, checks less often and runs at a lower priority, so your PC can focus on the game."
+    ],
+    "bugfixes": [
+      "The header locator in the Library now shows the tab you are on (Installed, Favorites or a tag), not always All games.",
+      "A new widget now appears on the Home screen straight away.",
+      "No more flashing bar when you change the interface style.",
+      "Play time only counts while the game's own window is open. Background programs such as the Wallpaper Engine wallpaper no longer count.",
+      "Open menus are no longer closed by a background refresh.",
+      "Small cover tiles no longer cut their title in half.",
+      "A banner or profile picture that is scrolled no longer tears at its edge (turn on Compatibility mode if it still does)."
+    ]
+  },
+  "1.0.7": {
+    "bugfixes": [
+      "The profile picture editor now shows a round preview instead of a flat oval.",
+      "Long drop-down menus, such as the list of games when you add a widget, now scroll to the last item and open upwards when there is no room below."
+    ]
+  },
+  "1.0.8": {
+    "features": [
+      "Two new animated wallpapers (Rainy Valley and Snowing Forest) and two new still wallpapers (Village and Windows XP).",
+      "Three new interface styles: Nature, Cozy and Tradition. They replace Liquid Glass and Cartoony. If you used one of those, Crescent switches you to Default.",
+      "Four new profile picture frames to unlock: Sakura, Thorns and Roses, Chroma and Crescent. They sit on top of your profile picture and line up by themselves, and so will every frame added later.",
+      "Offline status. Choose Offline and Crescent shows Offline, Touching Grass or Taking a Shower, picked at random each time you go offline."
+    ],
+    "reworks": [
+      "Borders are now called Frames.",
+      "The Hide/Show friends list button now sits between the page and the friends list instead of on top of the list.",
+      "The \"From my wallpaper\" and \"From my banner\" buttons are gone. Use the colour box to pick the exact colour you want.",
+      "The colour box has a new look that matches your interface style.",
+      "Boxes on the Account page are only as tall as what is inside them.",
+      "Picture, GIF and video widgets now use the width and height of the file you uploaded.",
+      "The upload window has a new look with rounded corners and follows your interface style."
+    ],
+    "bugfixes": [
+      "A profile picture that is a video or GIF now keeps the zoom and position you set in the editor.",
+      "The border of an uploaded banner now sticks to the banner, so no thin line of the background shows through."
+    ]
+  }
+}
